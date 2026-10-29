@@ -86,4 +86,4 @@ push 到 GitHub 後，`.github/workflows/build.yml` 會自動 build 並上傳 ex
 
 ## License
 
-私人專案，未附授權條款；自由取用於個人用途。
+[The Unlicense](https://unlicense.org)（公有領域貢獻）— 免署名、免標來源，任意使用、修改、散佈、商業用途皆可。
