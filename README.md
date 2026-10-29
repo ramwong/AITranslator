@@ -14,7 +14,7 @@
 ## 下載
 
 到 [Releases](https://github.com/ramwong/AITranslator/releases) 頁面下載最新版的
-`AITranslator-win-x64`（exe + 原生 DLL，解壓即可執行，**不用安裝**）。
+`AITranslator.exe`（單一檔案即可執行，原生元件已封裝在其中，**不用安裝**）。
 
 也可以到 [Actions](https://github.com/ramwong/AITranslator/actions) 下載最新
 master build 的 artifact（名字叫 `AITranslator-win-x64`）。
