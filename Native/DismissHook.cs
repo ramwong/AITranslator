@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.Runtime.InteropServices;
 
 namespace AITranslator.Native;
@@ -21,6 +22,13 @@ namespace AITranslator.Native;
 /// 執行，無須封送。dismiss 的例外以 try/catch 包住——例外若逃出 hook proc，
 /// 可能造成全系統輸入死鎖或程序崩潰，故於此處攔下。</para>
 ///
+/// <para><b>排除區域</b>：滑鼠 hook 在判斷是否 dismiss 前會先呼叫
+/// <see cref="Begin"/> 傳入的 excludeProvider 以取得彈窗（或其控制項）目前的
+/// <see cref="Rectangle"/>（螢幕座標，含邊界）；按下點落在區域內（含邊界）時
+/// 不觸發 dismiss——使用者點擊彈窗本身的按鈕/文字區不應關閉彈窗。
+/// Provider 於每次滑鼠事件重新呼叫；未提供（null）則不排除任何區域。
+/// Esc 鍵不受排除區域影響，一律 dismiss。</para>
+///
 /// <para><b>生命週期</b>：一次只允許一組 hook；已啟用時再呼叫 <see cref="Begin"/>
 /// 視為冪等（直接返回）、未啟用時呼叫 <see cref="End"/> 亦為無動作。
 /// dismiss 每次啟用最多觸發一次（防護旗標）。實作 <see cref="IDisposable"/>
@@ -31,6 +39,7 @@ internal sealed class DismissHook : IDisposable
     private static bool _active;
     private static bool _dismissed;
     private static Action? _dismiss;
+    private static Func<Rectangle>? _excludeProvider;
 
     // 保持 delegate 參考以防止 GC 回收已封送的 hook 函式指標
     private static Win32.LowLevelMouseProc? _mouseProc;
@@ -45,8 +54,11 @@ internal sealed class DismissHook : IDisposable
     /// <summary>
     /// 安裝滑鼠/鍵盤低層級 hook（hMod=IntPtr.Zero、dwThreadId=0 → 全域 LL hook）。
     /// 須由 UI 執行緒（RunForms 訊息幫浦）呼叫；已啟用時為冪等、直接返回。
+    /// <paramref name="excludeProvider"/> 每次滑鼠事件都會被呼叫，回傳彈窗目前的
+    /// <see cref="Rectangle"/>（螢幕座標）；按下點在其內（含邊界）不觸發 dismiss。
+    /// 傳入 null（或省略，預設值）表示不排除任何區域。
     /// </summary>
-    public static void Begin(Action dismiss)
+    public static void Begin(Action dismiss, Func<Rectangle>? excludeProvider = null)
     {
         if (dismiss == null)
         {
@@ -59,6 +71,7 @@ internal sealed class DismissHook : IDisposable
         }
 
         _dismiss = dismiss;
+        _excludeProvider = excludeProvider;
         _dismissed = false;
 
         _mouseProc = MouseHookProc;
@@ -95,6 +108,7 @@ internal sealed class DismissHook : IDisposable
         _mouseProc = null; // 已 Unhook，Windows 不會再呼叫，可安全釋放 delegate
         _keyboardProc = null;
         _dismiss = null;
+        _excludeProvider = null;
         _dismissed = false;
         _active = false;
     }
@@ -117,12 +131,42 @@ internal sealed class DismissHook : IDisposable
             int msg = wParam.ToInt32();
             if (msg == Win32.WM_LBUTTONDOWN || msg == Win32.WM_RBUTTONDOWN)
             {
-                InvokeDismissOnce();
+                var info = Marshal.PtrToStructure<Win32.MSLLHOOKSTRUCT>(lParam);
+                if (!ShouldSkipDismiss(info.pt))
+                {
+                    InvokeDismissOnce();
+                }
             }
         }
 
         // 一律轉送 hook 鏈：連觸發 dismiss 的這次按下也照常放行。
         return Win32.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+    }
+
+    /// <summary>
+    /// 判斷按下點是否落在排除區域（彈窗 Bounds，含邊界）內——是則不觸發 dismiss。
+    /// Provider 於每次滑鼠事件重新呼叫（成本低，彈窗重新定位後仍正確）。
+    /// 未提供 provider（null）時不排除任何區域。
+    /// </summary>
+    private static bool ShouldSkipDismiss(Win32.POINT pt)
+    {
+        var exclude = _excludeProvider;
+        if (exclude == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var rect = exclude();
+            // 含邊界（含四邊）：寧可多排除一個邊界像素，也不要把彈窗內的點按誤判為外部。
+            return pt.X >= rect.Left && pt.X <= rect.Right && pt.Y >= rect.Top && pt.Y <= rect.Bottom;
+        }
+        catch
+        {
+            // 例外不可逃出 hook proc（可能死鎖/崩潰）；Provider 失敗時採保守路線：不排除。
+            return false;
+        }
     }
 
     /// <summary>
