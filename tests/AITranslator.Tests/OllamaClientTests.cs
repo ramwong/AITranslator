@@ -230,4 +230,19 @@ public class OllamaClientTests
         Assert.Equal(string.Empty, result.Text);
         Assert.Equal(string.Empty, result.Error);
     }
+
+    [Fact]
+    public async Task HttpClientTimeout_ReturnsReadableTimeoutError()
+    {
+        var (client, handler) = CreateClient();
+        // 模擬 HttpClient 逾時：handler 丟出 TaskCanceledException，但外部 ct 未取消。
+        handler.Thrown = new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout");
+
+        var result = await client.TranslateAsync(CreateSettings(), "Hello", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(string.Empty, result.Text);
+        Assert.False(string.IsNullOrEmpty(result.Error));
+        Assert.Equal("Ollama 回應逾時，請確認模型已載入後再試", result.Error);
+    }
 }

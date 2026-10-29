@@ -59,9 +59,14 @@ public sealed class OllamaClient
         {
             return new TranslateResult(false, string.Empty, $"無法連線到 Ollama ({settings.OllamaUrl})，請確認 Ollama 已啟動");
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            // 外部取消（非逾時）：視為使用者取消，無錯誤訊息。
+            // HttpClient 逾時（外部 ct 仍未取消）。
+            return new TranslateResult(false, string.Empty, "Ollama 回應逾時，請確認模型已載入後再試");
+        }
+        catch (OperationCanceledException)
+        {
+            // 外部取消：視為使用者取消，無錯誤訊息。
             return new TranslateResult(false, string.Empty, string.Empty);
         }
         catch (JsonException)
