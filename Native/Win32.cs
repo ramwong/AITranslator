@@ -4,8 +4,9 @@ namespace AITranslator.Native;
 
 /// <summary>
 /// P/Invoke 集中宣告處：本專案所有對 user32.dll 的原生呼叫皆定義於此，
-/// 避免各服務各自散落 DllImport。目前涵蓋剪貼簿序號查詢、SendInput 模擬按鍵，
-/// 以及全域快速鍵註冊（RegisterHotKey / UnregisterHotKey / WM_HOTKEY）。
+/// 避免各服務各自散落 DllImport。目前涵蓋剪貼簿序號查詢、SendInput 模擬按鍵、
+/// 全域快速鍵註冊（RegisterHotKey / UnregisterHotKey / WM_HOTKEY），
+/// 以及低層級滑鼠/鍵盤掛鉤（SetWindowsHookExW / UnhookWindowsHookEx / CallNextHookEx）。
 /// </summary>
 internal static class Win32
 {
@@ -13,6 +14,60 @@ internal static class Win32
     internal const ushort VK_C = 0x43;
     internal const uint KEYEVENTF_KEYUP = 0x0002;
     internal const uint INPUT_KEYBOARD = 1;
+
+    // ---- 低層級掛鉤（SetWindowsHookExW，供 DismissHook「旁觀」滑鼠/Esc 關閉彈窗）----
+
+    internal const int WH_MOUSE_LL = 14;
+    internal const int WH_KEYBOARD_LL = 13;
+    internal const int WM_LBUTTONDOWN = 0x0201;
+    internal const int WM_RBUTTONDOWN = 0x0204;
+    internal const ushort VK_ESCAPE = 0x1B;
+
+    internal delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr SetWindowsHookExW(
+        int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr SetWindowsHookExW(
+        int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MSLLHOOKSTRUCT
+    {
+        public POINT pt;
+        public uint mouseData;
+        public uint flags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct KBDLLHOOKSTRUCT
+    {
+        public uint vkCode;
+        public uint scanCode;
+        public uint flags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
 
     // ---- 全域快速鍵（RegisterHotKey）----
 
