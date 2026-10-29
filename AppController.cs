@@ -74,6 +74,7 @@ public sealed class AppController : IDisposable
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("設定", null, (_, _) => ShowSettings());
+        menu.Items.Add("關於", null, (_, _) => ShowAbout());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("離開", null, (_, _) => Exit());
 
@@ -86,6 +87,13 @@ public sealed class AppController : IDisposable
     private void ShowSettings()
     {
         using var form = new SettingsForm(_settingsPath, OnSettingsChanged);
+        form.ShowDialog();
+    }
+
+    /// <summary>開啟「關於」對話框。</summary>
+    private void ShowAbout()
+    {
+        using var form = new AboutForm();
         form.ShowDialog();
     }
 
