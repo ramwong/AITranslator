@@ -26,7 +26,8 @@ namespace AITranslator.UI;
 ///
 /// <para><b>關閉</b>：第一次顯示時啟用 <see cref="DismissHook"/>
 /// （點擊彈窗以外任意處或按 Esc → Close）；<see cref="Form.OnClosed"/> 對應呼叫
-/// <see cref="DismissHook.End"/> 解除 hook。已顯示中再次呼叫 <see cref="ShowTranslation"/>
+/// <see cref="DismissHook.End"/> 解除 hook 並重設 <c>_dismissHooked</c>
+/// （關閉後被重用的彈窗會於 OnShown 重新安裝）。已顯示中再次呼叫 <see cref="ShowTranslation"/>
 /// 僅重新定位並更新狀態文字（重用同一視窗，不重複 Begin）。</para>
 ///
 /// <para><b>提示（toast）</b>：<see cref="ShowToast"/> 顯示提示文字（如「未選取文字」）
@@ -247,6 +248,10 @@ public class PopupForm : Form
         base.OnClosed(e);
         _busy = false;
         StopToastTimer(); // 手動關閉（DismissHook/Esc）取消自動關閉倒數
+        // 解除 hook 的同時重設旗標：封閉後被 AppController.EnsurePopup 重用的彈窗
+        // 需在 OnShown 重新 Begin（toast 自動關閉讓「關閉→重用」成為常態路徑，
+        // 不重設會造成重用彈窗沒有 dismissal hook、無法被外部點擊或 Esc 關閉）。
+        _dismissHooked = false;
         DismissHook.End();
     }
 
