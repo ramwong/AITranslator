@@ -21,10 +21,17 @@ namespace AITranslator.UI;
 /// 左上角，並 clamp 進 <see cref="Screen.FromPoint(Point)"/> 所在螢幕的 WorkingArea
 /// （多螢幕以滑鼠所在螢幕為準），彈窗永不溢出可視範圍。</para>
 ///
+/// <para><b>捲動</b>：譯文 Label 放在 <see cref="Panel"/>（AutoScroll=true、Dock=Fill）
+/// 內，Label AutoSize 依內容換行長高；譯文超過彈窗高度時出現縱向捲軸而不被裁切。</para>
+///
 /// <para><b>關閉</b>：第一次顯示時啟用 <see cref="DismissHook"/>
 /// （點擊彈窗以外任意處或按 Esc → Close）；<see cref="Form.OnClosed"/> 對應呼叫
 /// <see cref="DismissHook.End"/> 解除 hook。已顯示中再次呼叫 <see cref="ShowTranslation"/>
 /// 僅重新定位並更新狀態文字（重用同一視窗，不重複 Begin）。</para>
+///
+/// <para><b>提示（toast）</b>：<see cref="ShowToast"/> 顯示提示文字（如「未選取文字」）
+/// 後 2500ms 自動關閉；期間改以 <see cref="ShowTranslation"/> 重用彈窗即取消自動關閉，
+/// 手動關閉亦於 <see cref="OnClosed"/> 清掉計時器。</para>
 ///
 /// <para><see cref="IsBusy"/> 於 <see cref="ShowTranslation"/> 起為 true，
 /// 直到 <see cref="SetText"/> 或關閉。「複製」按鈕在取得非空譯文前保持禁用。</para>
@@ -32,10 +39,13 @@ namespace AITranslator.UI;
 public class PopupForm : Form
 {
     private const int Offset = 16; // 滑鼠位置到彈窗左上角的方向偏移（px）
+    private const int ToastAutoCloseMs = 2500; // toast 顯示多久後自動關閉（spec：顯示提示後自動關閉）
 
+    private readonly Panel _scrollPanel;
     private readonly Label _label;
     private readonly Button _copyButton;
     private readonly Font _font;
+    private System.Windows.Forms.Timer? _toastTimer; // toast 自動關閉計時器；ShowTranslation 重用時取消
     private string? _result;   // 目前譯文；SetText 前為 null
     private bool _busy;        // ShowTranslation → SetText/Close 之間為 true
     private bool _dismissHooked;
@@ -56,14 +66,25 @@ public class PopupForm : Form
 
         _font = new Font(Control.DefaultFont.FontFamily, settings.FontSize);
 
+        // 捲動容器：譯文超過彈窗可視高度時出現縱向捲軸（Label 不再被裁切）。
+        _scrollPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+        };
+        _scrollPanel.ClientSizeChanged += OnScrollPanelClientSizeChanged;
+
+        // AutoSize + MaximumSize（寬=面板可視寬、高不限）：文字依寬度換行、長度不限，
+        // 超過面板高度時由 AutoScroll 捲動露出。Label 不得 Dock：
+        // 被 dock 的子控制項會被拘限在可視區內，AutoScroll 不會為它出捲軸。
         _label = new Label
         {
-            AutoSize = false,
-            Dock = DockStyle.Fill,
+            AutoSize = true,
             TextAlign = ContentAlignment.TopLeft,
-            Padding = new Padding(12),
+            Location = new Point(12, 12), // 內距改以位移表示（AutoSize Label 的原 Padding 即視覺內距）
             Font = _font,
         };
+        _scrollPanel.Controls.Add(_label);
 
         _copyButton = new Button
         {
@@ -74,9 +95,9 @@ public class PopupForm : Form
         };
         _copyButton.Click += OnCopyButtonClick;
 
-        // 先加入 Fill 的 Label，再加入 Dock=Bottom 的 Button：
-        // WinForms 由集合尾端起 dock，Button 先佔底部，Label 才填滿其餘區域。
-        Controls.Add(_label);
+        // 先加入 Fill 的 Panel，再加入 Dock=Bottom 的 Button：
+        // WinForms 由集合尾端起 dock，Button 先佔底部，Panel 才填滿其餘區域。
+        Controls.Add(_scrollPanel);
         Controls.Add(_copyButton);
     }
 
@@ -114,11 +135,87 @@ public class PopupForm : Form
         _busy = true;
         _label.Text = statusText ?? string.Empty;
         _copyButton.Enabled = false;
+        StopToastTimer(); // 抓走 toast 彈窗改顯譯文/狀態後，絕不可再自動關閉
+        UpdateLabelWidth();
 
         if (!Visible)
         {
             Show(); // ShowWithoutActivation + WS_EX_NOACTIVATE：不會取得焦點
         }
+    }
+
+    /// <summary>
+    /// 顯示提示文字（如「未選取文字」「選取文字超過 N 字上限」）並於 2500ms 後自動關閉
+    /// （spec：顯示提示後自動關閉）。定位/重用方式與 <see cref="ShowTranslation"/> 相同
+    /// （非 busy 狀態、複製鈕禁用）；toast 期間改呼叫 <see cref="ShowTranslation"/> 或
+    /// 手動關閉都會取消計時器，不會有殘留的自動關閉計時或洩漏的 Timer。
+    /// </summary>
+    public void ShowToast(Point mousePos, string text)
+    {
+        Location = ComputePosition(mousePos);
+        _result = null;
+        _busy = false;
+        _label.Text = text ?? string.Empty;
+        _copyButton.Enabled = false;
+        UpdateLabelWidth();
+
+        if (!Visible)
+        {
+            Show(); // ShowWithoutActivation + WS_EX_NOACTIVATE：不會取得焦點
+        }
+
+        // 每次 toast 都重建計時器（重觸發時重置倒數）；表單關閉/釋放必經 StopToastTimer。
+        StopToastTimer();
+        _toastTimer = new System.Windows.Forms.Timer
+        {
+            Interval = ToastAutoCloseMs,
+        };
+        _toastTimer.Tick += OnToastTick;
+        _toastTimer.Start();
+    }
+
+    /// <summary>toast 倒數結束：先停掉計時器再關閉表單。</summary>
+    private void OnToastTick(object? sender, EventArgs e)
+    {
+        StopToastTimer();
+        Close();
+    }
+
+    /// <summary>
+    /// 停止並釋放 toast 計時器（冪等）。表單任何關閉/釋放路徑都會經過此處，
+    /// 保證不留活的 Timer、不留指向已釋放表單的計時器參考。
+    /// </summary>
+    private void StopToastTimer()
+    {
+        if (_toastTimer == null)
+        {
+            return;
+        }
+
+        var timer = _toastTimer;
+        _toastTimer = null;
+        timer.Stop();
+        timer.Tick -= OnToastTick;
+        timer.Dispose();
+    }
+
+    /// <summary>
+    /// 依捲動面板可視寬度限制 Label 寬（高度不限，0 = 無上限），
+    /// 讓文字換行並在過長時觸發 AutoScroll 縱向捲軸。
+    /// </summary>
+    private void UpdateLabelWidth()
+    {
+        int width = Math.Max(1, _scrollPanel.ClientSize.Width - 24); // 左右各 12px 內距
+        if (_label.MaximumSize.Width != width)
+        {
+            _label.MaximumSize = new Size(width, 0);
+        }
+    }
+
+    private void OnScrollPanelClientSizeChanged(object? sender, EventArgs e)
+    {
+        // 縱向捲軸出現/消失會改變可視寬，Label 寬度隨之調整（避免橫向捲軸）。
+        UpdateLabelWidth();
     }
 
     /// <summary>
@@ -130,6 +227,7 @@ public class PopupForm : Form
         _busy = false;
         _label.Text = result ?? string.Empty;
         _copyButton.Enabled = !string.IsNullOrEmpty(result);
+        UpdateLabelWidth(); // 防禦：確保長譯文觸發捲動而非被裁切
     }
 
     protected override void OnShown(EventArgs e)
@@ -148,6 +246,7 @@ public class PopupForm : Form
     {
         base.OnClosed(e);
         _busy = false;
+        StopToastTimer(); // 手動關閉（DismissHook/Esc）取消自動關閉倒數
         DismissHook.End();
     }
 
@@ -155,6 +254,7 @@ public class PopupForm : Form
     {
         if (disposing)
         {
+            StopToastTimer(); // 防禦：任何釋放路徑都不留活的計時器（含 Timer 對本表單的參考）
             _font.Dispose();
             _dismissHooked = false;
         }

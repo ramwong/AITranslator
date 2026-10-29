@@ -170,11 +170,20 @@ public class SettingsForm : Form
         return true;
     }
 
-    /// <summary>浮點數欄位驗證：可解析且落在 [min, max]。</summary>
+    /// <summary>浮點數欄位驗證：可解析為有限數（排除 NaN/Infinity）且落在 [min, max]。</summary>
     private bool ValidateFloatField(TextBox box, string name, float min, float max, out float value)
     {
+        // NumberStyles.Float 可解析 "NaN"/"Infinity"；而 NaN 落在 min/max 比較的兩側皆為
+        // false，會讓下面第二個條件不成立——須以 float.IsFinite 明確擋下，否則
+        // NaN 會被存進字級並讓 UI 建構 Font 時炸掉（整個 app 變磚）。
         if (!float.TryParse(box.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out value)
-            || value < min || value > max)
+            || !float.IsFinite(value))
+        {
+            ShowValidationError(box, $"{name}必須是有效數字。");
+            return false;
+        }
+
+        if (value < min || value > max)
         {
             ShowValidationError(box, $"{name}需為 {min} 至 {max} 之間的數值。");
             return false;

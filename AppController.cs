@@ -10,13 +10,11 @@ namespace AITranslator;
 
 /// <summary>
 /// 應用程式控制器：整合系統匣圖示、隱藏訊息視窗與熱鍵服務、
-/// 文字擷取、Ollama 翻譯與彈窗顯示的完整生命週期。
-///
 /// <para><b>熱鍵流程</b>（全部在 UI 執行緒上執行）：
 /// 既有請求進行中 → 先取消其 <see cref="CancellationTokenSource"/>；
 /// 取得滑鼠位置（擷取前）→ <see cref="CaptureService.Capture"/>（同步，需 UI/STA 執行緒）→
 /// <see cref="CaptureOutcome.NoSelection"/> 顯示「未選取文字」、
-/// <see cref="CaptureOutcome.TooLong"/> 顯示長度上限提示（皆為 toast，不自動關閉）；
+/// <see cref="CaptureOutcome.TooLong"/> 顯示長度上限提示（皆為 toast，2500ms 自動關閉）；
 /// <see cref="CaptureOutcome.Success"/> 先顯示「翻譯中…」再 await 翻譯，
 /// 完成後以 <see cref="PopupForm.SetText"/> 更新譯文或錯誤訊息。</para>
 ///
@@ -136,13 +134,13 @@ public sealed class AppController : IDisposable
         var (outcome, text) = _captureService.Capture();
         if (outcome == CaptureOutcome.NoSelection)
         {
-            EnsurePopup().ShowTranslation(mouse, NoSelectionText);
+            EnsurePopup().ShowToast(mouse, NoSelectionText); // toast：2500ms 自動關閉
             return;
         }
 
         if (outcome == CaptureOutcome.TooLong)
         {
-            EnsurePopup().ShowTranslation(mouse, $"選取文字超過 {_settings.MaxTextLength} 字上限");
+            EnsurePopup().ShowToast(mouse, $"選取文字超過 {_settings.MaxTextLength} 字上限");
             return;
         }
 

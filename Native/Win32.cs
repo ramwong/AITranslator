@@ -3,8 +3,9 @@ using System.Runtime.InteropServices;
 namespace AITranslator.Native;
 
 /// <summary>
-/// P/Invoke 集中宣告處：本專案所有對 user32.dll 的原生呼叫皆定義於此，
-/// 避免各服務各自散落 DllImport。目前涵蓋剪貼簿序號查詢、SendInput 模擬按鍵、
+/// P/Invoke 集中宣告處：本專案所有對 user32.dll / kernel32.dll 的原生呼叫皆定義於此，
+/// 避免各服務各自散落 DllImport。目前涵蓋剪貼簿序號查詢、剪貼簿原始格式備份/還原
+/// （OpenClipboard / EnumClipboardFormats / GlobalLock 等）、SendInput 模擬按鍵、
 /// 全域快速鍵註冊（RegisterHotKey / UnregisterHotKey / WM_HOTKEY），
 /// 以及低層級滑鼠/鍵盤掛鉤（SetWindowsHookExW / UnhookWindowsHookEx / CallNextHookEx）。
 /// </summary>
@@ -14,6 +15,52 @@ internal static class Win32
     internal const ushort VK_C = 0x43;
     internal const uint KEYEVENTF_KEYUP = 0x0002;
     internal const uint INPUT_KEYBOARD = 1;
+
+    // ---- 剪貼簿原始格式備份/還原（CaptureService）----
+
+    // GlobalAlloc 的可移動配置旗標；SetClipboardData 接受 GMEM_MOVEABLE 句柄。
+    internal const uint GMEM_MOVEABLE = 0x0002;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool OpenClipboard(IntPtr hWndNewOwner);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool CloseClipboard();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool EmptyClipboard();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr GetClipboardData(uint uFormat);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern uint EnumClipboardFormats(uint format);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsClipboardFormatAvailable(uint format);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr GlobalLock(IntPtr hMem);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GlobalUnlock(IntPtr hMem);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern UIntPtr GlobalSize(IntPtr hMem);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr GlobalFree(IntPtr hMem);
 
     // ---- 低層級掛鉤（SetWindowsHookExW，供 DismissHook「旁觀」滑鼠/Esc 關閉彈窗）----
 
