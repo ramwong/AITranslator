@@ -1,3 +1,5 @@
+using AITranslator.Native;
+
 namespace AITranslator.Services;
 
 /// <summary>
@@ -8,9 +10,6 @@ namespace AITranslator.Services;
 /// </summary>
 public static class HotkeyParser
 {
-    private const uint ModAlt = 0x1;      // MOD_ALT
-    private const uint ModControl = 0x2;  // MOD_CONTROL
-    private const uint ModShift = 0x4;    // MOD_SHIFT
 
     public static (bool success, uint mods, uint key) Parse(string hotkey)
     {
@@ -31,13 +30,13 @@ public static class HotkeyParser
             switch (tokens[i].Trim().ToUpperInvariant())
             {
                 case "CTRL":
-                    mods |= ModControl;
+                    mods |= Win32.MOD_CONTROL;
                     break;
                 case "ALT":
-                    mods |= ModAlt;
+                    mods |= Win32.MOD_ALT;
                     break;
                 case "SHIFT":
-                    mods |= ModShift;
+                    mods |= Win32.MOD_SHIFT;
                     break;
                 default:
                     return (false, 0, 0);
