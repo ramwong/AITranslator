@@ -80,7 +80,6 @@ push 到 GitHub 後，`.github/workflows/build.yml` 會自動 build 並上傳 ex
 
 ## 自行修改
 
-- **「關於」對話框文案**：`UI/AboutForm.cs` 頂部的 `Constants` 區塊（名稱、簡介、連結）
 - **翻譯 prompt / 目標語言**：設定介面的 Prompt 範本，或 `Models/AppSettings.cs` 的預設值
 - **預設值（彈窗大小、快捷鍵等）**：`Models/AppSettings.cs`
 - **翻譯錯誤提示文案**：`Services/OllamaClient.cs` 的錯誤映射
