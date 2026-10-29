@@ -11,4 +11,7 @@
     <SelfContained>true</SelfContained>
     <DefaultItemExcludes>$(DefaultItemExcludes);tests\**</DefaultItemExcludes>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="AITranslator.Tests" />
+  </ItemGroup>
 </Project>

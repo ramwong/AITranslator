@@ -37,6 +37,8 @@ public class CaptureService
 {
     private const int PollTimeoutMs = 800;
     private const int PollStepMs = 50;
+    private const int ModifierWaitMs = 1500;
+    private const int ModifierWaitStepMs = 25;
 
     private readonly int _maxTextLength;
 
@@ -84,6 +86,13 @@ public class CaptureService
             }
 
             var seqBefore = Win32.GetClipboardSequenceNumber();
+
+            // WM_HOTKEY 於按下組合鍵的當下觸發：此刻實體 Ctrl/Alt 幾乎必然仍壓著。
+            // 不先等放開，注入的 C 會以 Ctrl+Alt+C 的形式抵達目標程式（各程式皆無此
+            // 快捷鍵）→ 沒有複製 → NoSelection。以條件輪詢等實體修飾鍵放開。
+            WaitModifiersReleased();
+
+            if (!SendCtrlC())
 
             if (!SendCtrlC())
             {
@@ -250,6 +259,30 @@ public class CaptureService
         finally
         {
             Win32.CloseClipboard();
+        }
+    }
+
+    /// <summary>
+    /// 任一實體修飾鍵（Ctrl/Alt/Shift）壓著即回傳 true。keyState 可注入以供單元測試；
+    /// 預設走 GetAsyncKeyState（查實體狀態，不受「我們自己注入修飾鍵」的邏輯狀態污染）。
+    /// 高字元 0x8000 = 當下壓著；僅低字元 toggle 位元不算壓著。
+    /// </summary>
+    internal static bool AnyModifierPressed(Func<ushort, short>? keyState = null)
+    {
+        var state = keyState ?? (vk => Win32.GetAsyncKeyState(vk));
+        const short pressedBit = unchecked((short)0x8000);
+        return ((short)(state(Win32.VK_CONTROL) & pressedBit) != 0)
+            || ((short)(state(Win32.VK_MENU) & pressedBit) != 0)
+            || ((short)(state(Win32.VK_SHIFT) & pressedBit) != 0);
+    }
+
+    /// <summary>封鎖式等待實體修飾鍵全數放開（最長 ModifierWaitMs）；逾時仍繼續注入（best-effort）。</summary>
+    private static void WaitModifiersReleased()
+    {
+        var deadline = Stopwatch.GetTimestamp() + (ModifierWaitMs * Stopwatch.Frequency / 1000);
+        while (AnyModifierPressed() && Stopwatch.GetTimestamp() < deadline)
+        {
+            Thread.Sleep(ModifierWaitStepMs);
         }
     }
 

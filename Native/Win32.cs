@@ -11,7 +11,9 @@ namespace AITranslator.Native;
 /// </summary>
 internal static class Win32
 {
+    internal const ushort VK_SHIFT = 0x10;
     internal const ushort VK_CONTROL = 0x11;
+    internal const ushort VK_MENU = 0x12; // Alt
     internal const ushort VK_C = 0x43;
     internal const uint KEYEVENTF_KEYUP = 0x0002;
     internal const uint INPUT_KEYBOARD = 1;
@@ -136,6 +138,10 @@ internal static class Win32
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    /// <summary>查詢實體（非僅邏輯）按鍵狀態；高字元 0x8000 = 當下壓著。</summary>
+    [DllImport("user32.dll")]
+    internal static extern short GetAsyncKeyState(ushort vKey);
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct INPUT
