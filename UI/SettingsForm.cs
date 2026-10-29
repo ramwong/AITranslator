@@ -141,7 +141,9 @@ public class SettingsForm : Form
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                  or System.Security.SecurityException or ArgumentException)
         {
-            // 存檔失敗不關表單，讓使用者保留編輯內容自行修正或取消。
+            // 存檔失敗不關表單，讓使用者保留編輯內容自行修正或取消；
+            // 中和儲存鈕的 DialogResult.OK，避免 ShowDialog 直接收下 OK 關窗。
+            DialogResult = DialogResult.None;
             MessageBox.Show(this, $"設定檔儲存失敗：{ex.Message}", "設定錯誤",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
@@ -151,6 +153,7 @@ public class SettingsForm : Form
         AutoStartService.SetEnabled(_settings.StartWithWindows);
 
         _onChanged.Invoke(_settings);
+        DialogResult = DialogResult.OK; // 明確宣告成功（驗證失敗路徑已將其歸 None）
         Close();
     }
 
@@ -183,6 +186,9 @@ public class SettingsForm : Form
     /// <summary>顯示驗證錯誤（owner 為本表單），焦點移回問題欄位，不存檔。</summary>
     private void ShowValidationError(TextBox box, string message)
     {
+        // 中和儲存鈕的 DialogResult.OK：ShowDialog 下不取消就會驗證一失敗即關窗、
+        // 連帶丟掉使用者尚未通過驗證的編輯內容。
+        DialogResult = DialogResult.None;
         MessageBox.Show(this, message, "設定錯誤", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         box.Focus();
         box.SelectAll();
@@ -259,7 +265,7 @@ public class SettingsForm : Form
         Controls.Add(table);
     }
 
-    /// <summary>加入「標籤 + 控制項」一列（範本等多行列以 RowStyle 個別調整）。</summary>
+    /// <summary>加入「標籤 + 控制項」一列；RowStyle 由本方法（或範本/按鈕等呼叫端）加入一次。</summary>
     private void AddFieldRow(TableLayoutPanel table, int row, string labelText, Control field)
     {
         AddLabel(table, row, labelText);
@@ -268,6 +274,7 @@ public class SettingsForm : Form
         table.Controls.Add(field, 1, row);
     }
 
+    /// <summary>只在標籤欄放 Label（不動 RowStyles，列高由各列呼叫端負責加入一次）。</summary>
     private void AddLabel(TableLayoutPanel table, int row, string labelText)
     {
         var label = new Label
@@ -279,7 +286,6 @@ public class SettingsForm : Form
             Margin = new Padding(0, 0, 8, 0),
         };
         table.Controls.Add(label, 0, row);
-        table.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
     }
 
     private void OnCancelButtonClick(object? sender, EventArgs e) => Close();
