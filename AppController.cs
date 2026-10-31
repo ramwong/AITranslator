@@ -70,6 +70,14 @@ namespace AITranslator;
 /// <see cref="TtsAssetStore.EnsureExtracted"/> → <see cref="Native.PttsNative.RegisterResolver"/>，
 /// 解壓失敗轉 <see cref="TtsState.Failed"/> 帶回訊息。</para>
 ///
+/// <para><b>彈窗按鈕</b>（<see cref="EnsurePopup"/> 建立實例時訂閱，實例重用不重複訂閱）：
+/// ⚙ 設定按鈕 → <see cref="OnPopupSettingsRequested"/>（關彈窗後開強制回設定視窗）；
+/// 🔊 朗讀按鈕 → <see cref="OnPopupTtsRequested"/>（共用 <see cref="TtsService"/> 狀態機，
+/// 文字為當前彈窗原文、不套長度上限、不用 toast——狀態顯示於
+/// <see cref="PopupForm.ShowTtsStatus"/> 狀態列；<c>_pendingTtsFromPopup</c> 標記來源，
+/// <see cref="OnTtsStateChangedUi"/> 據此把 Failed 顯示於狀態列、Ready 清掉狀態列，
+/// 熱鍵路徑則重置旗標維持既有 toast 行為）。</para>
+///
 /// <para><b>TTS 狀態封送</b>：<see cref="TtsService.StateChanged"/> 於轉移發生執行緒
 /// 同步引發（可能為執行緒集區／播放 worker，也可能在 TtsService 鎖內），
 /// Handler 僅做 <see cref="SynchronizationContext.Post"/>（於熱鍵處理時擷取 UI 執行緒的
@@ -127,6 +135,15 @@ public sealed class AppController : IDisposable
     /// 刻意不與翻譯的 <c>_requestId</c>/<c>_cts</c> 共用任何狀態。
     /// </summary>
     private string? _pendingTtsText;
+
+    /// <summary>
+    /// <c>_pendingTtsText</c> 的來源旗標：true = 由彈窗 🔊 按鈕觸發（失敗訊息改顯示於彈窗
+    /// 狀態列、Ready 開始出聲時清掉狀態列）；false = 熱鍵觸發（維持既有 toast 行為）。
+    /// 恆與 <c>_pendingTtsText</c> 同步覆寫／清空（熱鍵 NotLoaded/Failed 分支、
+    /// <see cref="OnTtsStateChangedUi"/> 的 Ready/Failed 消費點）。Exit()/Dispose() 無須清理：
+    /// 旗標只影響「下一次」Failed/Ready 轉移的呈現，且訂閱已先解除、不會再有封送。
+    /// </summary>
+    private bool _pendingTtsFromPopup;
 
     /// <summary>
     /// UI 執行緒的 <see cref="SynchronizationContext"/>（Windows Forms；於熱鍵處理時擷取，
@@ -340,6 +357,7 @@ public sealed class AppController : IDisposable
                 // 播放。順序刻意為「存文字 → EnsureLoaded」，讓載入失敗（Failed 轉移）必然
                 // 發生在文字就緒之後，不遺失、不說過期文字。
                 _pendingTtsText = text;
+                _pendingTtsFromPopup = false; // 熱鍵來源：後續 Failed/Ready 仍走既有 toast 行為
                 _ttsService.EnsureLoaded();
                 EnsurePopup().ShowToast(mouse, TtsInitializingText);
                 return;
@@ -351,9 +369,9 @@ public sealed class AppController : IDisposable
                 // _lastError（重載成功情境本就要忘掉上次失敗），讀晚了只會殘留 null。
                 var lastError = _ttsService.LastError;
                 _pendingTtsText = text;
+                _pendingTtsFromPopup = false; // 熱鍵來源：後續 Failed/Ready 仍走既有 toast 行為
                 _ttsService.EnsureLoaded();
-                EnsurePopup().ShowToast(mouse, string.Format(TtsFailedText,
-                    string.IsNullOrEmpty(lastError) ? TtsFailedUnknownReason : lastError));
+                EnsurePopup().ShowToast(mouse, FormatTtsFailed(lastError));
                 return;
 
             case TtsState.Ready:
@@ -376,10 +394,13 @@ public sealed class AppController : IDisposable
     }
 
     /// <summary>
-    /// 封送回 UI 執行緒後的 TTS 狀態處理：<see cref="TtsState.Failed"/> 立即以「當下」游標
-    /// 位置 toast 失敗原因並丟棄待播文字（絕不說出過期文字）；
+    /// 封送回 UI 執行緒後的 TTS 狀態處理：<see cref="TtsState.Failed"/> 依來源分流——
+    /// 待播文字來自彈窗 🔊 按鈕（<c>_pendingTtsFromPopup</c>）且彈窗仍顯示結果時，錯誤以
+    /// 錯誤色顯示於彈窗按鈕區狀態列（不覆蓋內容、不自動關窗）；否則維持既有行為——以「當下」
+    /// 游標位置 toast 失敗原因。兩種皆丟棄待播文字（絕不說出過期文字）並重置來源旗標；
     /// <see cref="TtsState.Ready"/>：若仍有首次按壓備妥的文字且服務仍在 Ready（未被他按壓推進），
-    /// 即刻 Toggle 播放；其餘 Ready 轉移（自然播完、停止完成）與其他狀態皆靜默。
+    /// 即刻 Toggle 播放；若該次播放由彈窗按鈕啟動，隨後清掉彈窗狀態列（Ready 後靜默，無提示）；
+    /// 其餘 Ready 轉移（自然播完、停止完成）與其他狀態皆靜默。
     /// </summary>
     private void OnTtsStateChangedUi(TtsState state)
     {
@@ -391,13 +412,23 @@ public sealed class AppController : IDisposable
         switch (state)
         {
             case TtsState.Failed:
-                _pendingTtsText = null;
                 var error = _ttsService.LastError;
-                EnsurePopup().ShowToast(
-                    Cursor.Position, // 失敗通報以顯示當下（而非按壓時）的游標位置
-                    string.IsNullOrEmpty(error)
-                        ? string.Format(TtsFailedText, TtsFailedUnknownReason)
-                        : string.Format(TtsFailedText, error));
+                var popup = _popup;
+                if (_pendingTtsFromPopup && popup is not null && !popup.IsDisposed
+                    && popup.Visible && popup.IsShowingResult)
+                {
+                    // 彈窗來源：失敗原因顯示於彈窗按鈕區狀態列（不覆蓋內容、不自動關窗）
+                    popup.ShowTtsStatus(FormatTtsFailed(error), isError: true);
+                }
+                else
+                {
+                    EnsurePopup().ShowToast(
+                        Cursor.Position, // 失敗通報以顯示當下（而非按壓時）的游標位置
+                        FormatTtsFailed(error)); // 既有行為
+                }
+
+                _pendingTtsText = null;
+                _pendingTtsFromPopup = false; // 來源已消費（無論走狀態列或 toast）
                 return;
 
             case TtsState.Ready:
@@ -409,9 +440,28 @@ public sealed class AppController : IDisposable
                     _ttsService.Toggle(pending);
                 }
 
+                if (_pendingTtsFromPopup) // 開始出聲：清掉狀態列（Ready 後靜默，無提示）
+                {
+                    var popup2 = _popup;
+                    if (popup2 is not null && !popup2.IsDisposed)
+                    {
+                        popup2.ShowTtsStatus(null);
+                    }
+
+                    _pendingTtsFromPopup = false;
+                }
+
                 return;
         }
     }
+
+    /// <summary>
+    /// 組出「TTS 失敗：{原因}」文案（熱鍵與彈窗路徑共用；原有的兩處 inline
+    /// <see cref="string.Format"/> 收斂於此）：失敗原因為空時落 <see cref="TtsFailedUnknownReason"/>。
+    /// </summary>
+    private static string FormatTtsFailed(string? lastError) =>
+        string.Format(TtsFailedText,
+            string.IsNullOrEmpty(lastError) ? TtsFailedUnknownReason : lastError);
 
     /// <summary>
     /// 翻譯熱鍵流程（UI 執行緒）：取消進行中的請求 → 同步擷取選取文字 →
@@ -699,15 +749,87 @@ public sealed class AppController : IDisposable
         _popup.SetText(message, isError);
     }
 
-    /// <summary>取得可用的彈窗實例；舊實例已關閉（Disposed）則以目前設定重建。</summary>
+    /// <summary>
+    /// 取得可用的彈窗實例；舊實例已關閉（Disposed）則以目前設定重建。
+    /// 訂閱（⚙ 設定 / 🔊 朗讀按鈕）僅於建立新實例時掛一次——實例單次建立後重用，
+    /// 不會重複訂閱。
+    /// </summary>
     private PopupForm EnsurePopup()
     {
         if (_popup == null || _popup.IsDisposed)
         {
             _popup = new PopupForm(_settings);
+            _popup.SettingsRequested += OnPopupSettingsRequested;
+            _popup.TtsRequested += OnPopupTtsRequested;
         }
 
         return _popup;
+    }
+
+    /// <summary>
+    /// 彈窗 ⚙ 設定按鈕（UI 執行緒）：關閉彈窗後以現行設定開強制回設定視窗
+    /// （存檔後 <see cref="OnSettingsChanged"/> 會再關舊彈窗；此處先 <see cref="DiscardPopup"/>
+    /// 讓彈窗不必在設定視窗底下殘留）。
+    /// </summary>
+    private void OnPopupSettingsRequested()
+    {
+        DiscardPopup();
+        ShowSettings();
+    }
+
+    /// <summary>
+    /// 彈窗 🔊 朗讀按鈕（UI 執行緒）：與熱鍵共用 <see cref="TtsService"/> 狀態機，但
+    /// 供應文字為<b>當前彈窗原文</b>（<see cref="PopupForm.TtsRequested"/> 帶入，可為空字串）、
+    /// <b>不套 <see cref="AppSettings.MaxTextLength"/> 預檢、不用 toast</b>——狀態一律顯示於
+    /// 彈窗按鈕區狀態列（不覆蓋內容、不自動關窗），以 <c>_pendingTtsFromPopup</c> 標記來源。
+    /// <list type="bullet">
+    /// <item><see cref="TtsState.Loading"/>／Stopping：狀態列「TTS 初始化中…」，不重複觸發。</item>
+    /// <item><see cref="TtsState.NotLoaded"/>：備妥文字後 <see cref="TtsService.EnsureLoaded"/>
+    ///  （順序同熱鍵：先存文字再載入，失敗不遺失）、狀態列「TTS 初始化中…」。</item>
+    /// <item><see cref="TtsState.Failed"/>：先讀 <see cref="TtsService.LastError"/>（EnsureLoaded
+    ///  會清掉它）→ 狀態列錯誤色顯示失敗原因 → 重試載入並備妥新文字。</item>
+    /// <item><see cref="TtsState.Ready"/>／Speaking：<see cref="TtsService.Toggle"/>
+    ///  （出聲／停止皆靜默；Ready 轉移時由 <see cref="OnTtsStateChangedUi"/> 清掉狀態列）。</item>
+    /// </list>
+    /// 此處於 UI 執行緒的 <see cref="Control.Click"/> 事件中執行，存取 <c>_popup</c> 安全。
+    /// </summary>
+    private void OnPopupTtsRequested(string sourceText)
+    {
+        // 按鈕路徑不套 MaxTextLength（spec）；不使用 toast——狀態一律顯示於彈窗按鈕區狀態列（不覆蓋內容、不自動關窗）
+        if (_popup is null || _popup.IsDisposed)
+        {
+            return;
+        }
+
+        var popup = _popup!;
+        switch (_ttsService.State)
+        {
+            case TtsState.Loading:
+            case TtsState.Stopping:
+                popup.ShowTtsStatus(TtsInitializingText);
+                return;
+
+            case TtsState.NotLoaded:
+                _pendingTtsText = sourceText;
+                _pendingTtsFromPopup = true;
+                _ttsService.EnsureLoaded();
+                popup.ShowTtsStatus(TtsInitializingText);
+                return;
+
+            case TtsState.Failed:
+                // 失敗原因需在 EnsureLoaded「前」讀取（EnsureLoadedLocked 會清掉 _lastError）
+                var lastError = _ttsService.LastError;
+                _pendingTtsText = sourceText;
+                _pendingTtsFromPopup = true;
+                _ttsService.EnsureLoaded();
+                popup.ShowTtsStatus(FormatTtsFailed(lastError), isError: true);
+                return;
+
+            case TtsState.Ready:
+            case TtsState.Speaking:
+                _ttsService.Toggle(sourceText);
+                return;
+        }
     }
 
     /// <summary>關閉並捨棄現存彈窗（Close 即 Dispose，讓下次以新設定重建）。</summary>
