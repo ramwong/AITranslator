@@ -100,8 +100,11 @@ public sealed class OllamaClient
 
             if (line.Trim().Equals(OcrCombinedSeparator, StringComparison.Ordinal))
             {
-                // Source：分隔行之前的所有行（去掉緊接在前的一個行尾換行）。
-                var source = searchStart == 0 ? string.Empty : output[..(searchStart - 1)];
+                // Source：分隔行之前的所有行（去掉緊接在前的一個行尾換行）；
+                // CRLF 輸入時該換行為 "\r\n"，切掉的 "\n" 後再 TrimEnd 掉殘餘的 "\r"。
+                var source = searchStart == 0
+                    ? string.Empty
+                    : output[..(searchStart - 1)].TrimEnd('\r', '\n');
                 // Translation：分隔行之後的所有行（去掉一個行首換行）。
                 var translation = lineEnd < 0 ? string.Empty : output[(lineEnd + 1)..];
                 return (source, translation);

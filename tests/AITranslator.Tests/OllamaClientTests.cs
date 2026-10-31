@@ -410,6 +410,7 @@ public class OllamaClientTests
     [InlineData("沒分隔的整段", "", "沒分隔的整段")]
     [InlineData("第一\n===\n中\n===\n二", "第一", "中\n===\n二")] // 首個分隔行生效
     [InlineData("原文\n  ===  \n譯文", "原文", "譯文")]           // 分隔行允許兩側縮排
+    [InlineData("a\r\n===\nb", "a", "b")]                        // CRLF：Source 不留殘餘 \r
     public void SplitCombinedOcrOutput_ParsesAndFallsBack(string output, string source, string translation)
     {
         var (src, tr) = OllamaClient.SplitCombinedOcrOutput(output);

@@ -285,7 +285,8 @@ public class SettingsForm : Form
         _ocrHotkeyBox.Text = _settings.OcrHotkey;     // 顯示如「Ctrl+Alt+I」
         _ocrTranslateInVisionBox.Checked = _settings.OcrTranslateInVision;
         _maxTextLengthBox.Text = _settings.MaxTextLength.ToString(CultureInfo.InvariantCulture);
-        _popupLayoutBox.SelectedIndex = (int)_settings.PopupLayout;
+        // 設定檔可能被手改出範圍外的 enum 值：夾限到 0–2（回落到第一項「左右分欄」），避免丟例外開不了設定視窗。
+        _popupLayoutBox.SelectedIndex = Math.Clamp((int)_settings.PopupLayout, 0, 2);
     }
 
     private void BuildLayout()

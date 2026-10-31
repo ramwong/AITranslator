@@ -395,8 +395,10 @@ public sealed class AppController : IDisposable
 
     /// <summary>
     /// 封送回 UI 執行緒後的 TTS 狀態處理：<see cref="TtsState.Failed"/> 依來源分流——
-    /// 待播文字來自彈窗 🔊 按鈕（<c>_pendingTtsFromPopup</c>）且彈窗仍顯示結果時，錯誤以
-    /// 錯誤色顯示於彈窗按鈕區狀態列（不覆蓋內容、不自動關窗）；否則維持既有行為——以「當下」
+    /// 待播文字來自彈窗 🔊 按鈕（<c>_pendingTtsFromPopup</c>）且彈窗仍存在並可見時，錯誤以
+    /// 錯誤色顯示於彈窗按鈕區狀態列（不覆蓋內容、不自動關窗；忙碌中的彈窗亦然——狀態列可
+    /// 覆蓋忙碌彈窗，否則 toast 會蓋住內容並於 2500ms 後自動關窗，靜默丟掉進行中的翻譯）；
+    /// 否則維持既有行為——以「當下」
     /// 游標位置 toast 失敗原因。兩種皆丟棄待播文字（絕不說出過期文字）並重置來源旗標；
     /// <see cref="TtsState.Ready"/>：若仍有首次按壓備妥的文字且服務仍在 Ready（未被他按壓推進），
     /// 即刻 Toggle 播放；若該次播放由彈窗按鈕啟動，隨後清掉彈窗狀態列（Ready 後靜默，無提示）；
@@ -415,9 +417,10 @@ public sealed class AppController : IDisposable
                 var error = _ttsService.LastError;
                 var popup = _popup;
                 if (_pendingTtsFromPopup && popup is not null && !popup.IsDisposed
-                    && popup.Visible && popup.IsShowingResult)
+                    && popup.Visible)
                 {
-                    // 彈窗來源：失敗原因顯示於彈窗按鈕區狀態列（不覆蓋內容、不自動關窗）
+                    // 彈窗來源：失敗原因顯示於彈窗按鈕區狀態列（不覆蓋內容、不自動關窗）；
+                    // 忙碌中（翻譯進行中）亦然——狀態列可覆蓋忙碌彈窗，切勿 toast／自動關窗。
                     popup.ShowTtsStatus(FormatTtsFailed(error), isError: true);
                 }
                 else
@@ -648,7 +651,7 @@ public sealed class AppController : IDisposable
                 }
                 else
                 {
-                    // 版面③（不顯示原文）：維持既有提示詞，不多發請求（review focus：不得多發）
+                    // 版面③（不顯示原文）：維持既有提示詞，不多發請求。
                     var direct = await _ollamaClient.RecognizeAndTranslateAsync(_settings, imageBase64, ct);
                     CompleteOcrFlow(direct, requestId);
                 }
