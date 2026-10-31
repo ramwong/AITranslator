@@ -360,11 +360,17 @@ public sealed class RegionSelectorForm : Form
         _session.RectVirtual = Normalize(_dragStartVirtual, PointToScreen(e.Location));
         var newVirtual = _session.RectVirtual;
 
-        Invalidate(Rectangle.Union(ToClient(oldVirtual), ToClient(newVirtual)));
+        // 失效區＝新舊矩形聯集，外加 2px 邊距（筆跡/GDI 邊界像素可能落在矩形
+        // 涵蓋範圍外緣一至兩格；保險把邊界也納入，僅多刷細邊條，不整面重繪）。
+        var dirty = Rectangle.Union(ToClient(oldVirtual), ToClient(newVirtual));
+        dirty.Inflate(2, 2);
+        Invalidate(dirty);
         foreach (var shadow in _session.Shadows)
         {
             // 選區跨到的螢幕，其輔 overlay 也同步把該部分挖亮（框在各螢幕上位置一致、無位移）。
-            shadow.Invalidate(Rectangle.Union(shadow.ToClient(oldVirtual), shadow.ToClient(newVirtual)));
+            var shadowDirty = Rectangle.Union(shadow.ToClient(oldVirtual), shadow.ToClient(newVirtual));
+            shadowDirty.Inflate(2, 2);
+            shadow.Invalidate(shadowDirty);
         }
     }
 
@@ -438,11 +444,21 @@ public sealed class RegionSelectorForm : Form
             g.FillRegion(curtain, curtainArea);
         }
 
-        // 3) 白色 1px 邊框（Inset：線完全落在矩形內側，不因畫筆對齊吃掉選區邊緣像素）。
+        // 3) 白色 1px 邊框——畫在選區「內」的最後一列/行像素上：
+        //    GDI+ DrawRectangle 把線畫在邊界座標（X+Width / Y+Height）上，比矩形
+        //    實際涵蓋的最後一個像素行/列再往外一格；因此以 (Width-1, Height-1)
+        //    指定幾何，讓框完全落在選區像素內（框外不會多出 1px 白線），
+        //    也讓 OnMouseMove 的「新舊矩形聯集」失效重繪能完整蓋掉縮小方向的殘框
+        //    （邊界像素若超出矩形涵蓋範圍，聯集失效區永遠蓋不到——實測即為縮小時殘框的根因）。
         if (!selectionClient.IsEmpty)
         {
+            var frameRect = new Rectangle(
+                selectionClient.X,
+                selectionClient.Y,
+                selectionClient.Width - 1,
+                selectionClient.Height - 1);
             using var frame = new Pen(FrameColor) { Alignment = PenAlignment.Inset };
-            g.DrawRectangle(frame, selectionClient);
+            g.DrawRectangle(frame, frameRect);
         }
     }
 
