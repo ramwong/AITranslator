@@ -15,8 +15,10 @@ namespace AITranslator;
 /// 取得滑鼠位置（擷取前）→ <see cref="CaptureService.Capture"/>（同步，需 UI/STA 執行緒）→
 /// <see cref="CaptureOutcome.NoSelection"/> 顯示「未選取文字」、
 /// <see cref="CaptureOutcome.TooLong"/> 顯示長度上限提示（皆為 toast，2500ms 自動關閉）；
-/// <see cref="CaptureOutcome.Success"/> 先顯示「翻譯中…」再 await 翻譯，
-/// 完成後以 <see cref="PopupForm.SetText"/> 更新譯文或錯誤訊息。</para>
+/// <see cref="CaptureOutcome.Success"/> 先顯示「翻譯中…」（顯示原文的版面
+/// <see cref="AppSettings.PopupLayout"/> 非 TranslationOnly 時同步放入原文）再 await 翻譯，
+/// 完成後以 <see cref="PopupForm.SetText"/> 更新譯文或錯誤訊息（彈窗保留已顯示的原文，
+/// 不重送原文）。</para>
 ///
 /// <para><b>螢幕框選（OCR）流程</b>（熱鍵處理同樣在 UI 執行緒）：
 /// 取消進行中請求並遞增請求序號 → <see cref="RegionSelectorForm.SelectRegion"/>（modal
@@ -24,14 +26,19 @@ namespace AITranslator;
 /// 重入檢查（框選期間有其他熱鍵接管 → 本次取消即過期，不抓圖不發請求）→
 /// 以選取矩形中心為彈窗錨 → <see cref="ScreenCaptureService.CaptureToBase64"/>
 /// （同步，UI 執行緒；順序：overlay 已關「後」才抓，暗幕不會入鏡）→
-/// 顯示「辨識中…」後 await 流程（<see cref="OcrFlowAsync"/>）：
-/// <see cref="AppSettings.OcrTranslateInVision"/> 為 true 時單次呼叫
-/// <see cref="OllamaClient.RecognizeAndTranslateAsync"/>（辨識+翻譯一次完成，
-/// 無中間辨識文字可比對，故不套用長度上限預檢）；否則兩次呼叫——
+/// 顯示「辨識中…」（原文此刻尚不可得，原文區留空）後 await 流程（<see cref="OcrFlowAsync"/>）：
+/// <see cref="AppSettings.OcrTranslateInVision"/> 為 true 時單次呼叫——顯示原文的版面
+/// 走 <see cref="OllamaClient.RecognizeSourceAndTranslateAsync"/>（合併提示詞，單次請求同時
+/// 取得辨識文字與譯文，以 <see cref="OllamaClient.SplitCombinedOcrOutput"/> 拆出原文並隨結果
+/// 送上彈窗；分隔符缺席時原文為空＝自然降級）；版面③ 維持
+/// <see cref="OllamaClient.RecognizeAndTranslateAsync"/> 不變（僅取譯文，不多發請求）。
+/// 兩種版面皆無中間辨識文字可比對，故不套用長度上限預檢；否則兩次呼叫——
 /// <see cref="OllamaClient.RecognizeOcrTextAsync"/> → 過期丟棄 → 失敗比照翻譯錯誤路徑 →
 /// 空字串 toast「未辨識到文字」、超上限 toast（<see cref="AppSettings.MaxTextLength"/>）→
-/// 先把彈窗改為「翻譯中…」再 <see cref="OllamaClient.TranslateAsync"/>。完成後
-/// <see cref="CompleteOcrFlow"/>：成功以 <see cref="PopupForm.SetText"/> 送上譯文、
+/// 先把彈窗改為「翻譯中…」（顯示原文的版面同步放入辨識文字）再
+/// <see cref="OllamaClient.TranslateAsync"/>。完成後
+/// <see cref="CompleteOcrFlow"/>：成功以 <see cref="PopupForm.SetText"/> 送上譯文
+/// （合併路徑另以 <see cref="PopupForm.SetSource"/> 放入原文）、
 /// Error 為空（使用者取消）關彈窗、失敗送上錯誤文案，語義同翻譯流程。</para>
 ///
 /// <para><b>框選期間的熱鍵重入</b>：框選為 modal 訊息迴圈，期間任何一組熱鍵（含重按的
@@ -127,6 +134,15 @@ public sealed class AppController : IDisposable
     /// （未曾按過 TTS 熱鍵前不會有 Failed/Ready 轉移，無事可封送）。
     /// </summary>
     private SynchronizationContext? _uiContext;
+
+    /// <summary>
+    /// 目前的彈窗版面是否顯示原文（版面①②：Split/Stack）：true 時翻譯與 OCR 流程把原文
+    /// 一併送進彈窗（<see cref="PopupForm.ShowTranslation"/> 帶原文／合併 OCR 以
+    /// <see cref="OllamaClient.SplitCombinedOcrOutput"/> 拆出原文）；版面③
+    /// （<see cref="PopupLayout.TranslationOnly"/>）不送原文，單次呼叫 OCR 亦不走合併提示詞
+    /// （省 token：維持既有 <see cref="OllamaClient.RecognizeAndTranslateAsync"/>，不額外發請求）。
+    /// </summary>
+    private bool ShowSource => _settings.PopupLayout != PopupLayout.TranslationOnly;
 
     public AppController(AppSettings settings, string settingsPath)
     {
@@ -436,7 +452,8 @@ public sealed class AppController : IDisposable
             return;
         }
 
-        EnsurePopup().ShowTranslation(mouse, TranslatingText);
+        // 顯示原文的版面（①②）在「翻譯中…」階段即放入原文；版面③ 傳 null（原文區不存在）
+        EnsurePopup().ShowTranslation(mouse, TranslatingText, ShowSource ? text : null);
         TranslateAndShowAsync(text, _requestId, NewCts().Token);
     }
 
@@ -465,7 +482,15 @@ public sealed class AppController : IDisposable
 
             if (result.Success)
             {
-                DeliverToPopup(string.IsNullOrEmpty(result.Text) ? EmptyTranslationText : result.Text);
+                // 空譯文視為失敗訊息（錯誤色顯示「未取得翻譯內容」）
+                if (string.IsNullOrEmpty(result.Text))
+                {
+                    DeliverToPopup(EmptyTranslationText, isError: true);
+                }
+                else
+                {
+                    DeliverToPopup(result.Text); // 彈窗保留既有原文，不必重送
+                }
             }
             else if (result.Error.Length == 0)
             {
@@ -474,7 +499,7 @@ public sealed class AppController : IDisposable
             }
             else
             {
-                DeliverToPopup(result.Error);
+                DeliverToPopup(result.Error, isError: true);
             }
         }
         catch (Exception ex)
@@ -551,7 +576,11 @@ public sealed class AppController : IDisposable
         OcrFlowAsync(anchor, image, requestId, NewCts().Token);
     }
 
-    /// <summary>框選後的 OCR 流程：單次呼叫模式（辨識+翻譯一次完成）或兩次呼叫模式（辨識 → 預檢 → 翻譯）。</summary>
+    /// <summary>
+    /// 框選後的 OCR 流程：單次呼叫模式（辨識+翻譯一次完成；顯示原文的版面走合併提示詞
+    /// <see cref="OllamaClient.RecognizeSourceAndTranslateAsync"/>，原文隨結果送達）或
+    /// 兩次呼叫模式（辨識 → 預檢 → 翻譯；辨識文字先送進原文區）。
+    /// </summary>
     private async void OcrFlowAsync(Point anchor, string imageBase64, int requestId, CancellationToken ct)
     {
         try
@@ -559,12 +588,25 @@ public sealed class AppController : IDisposable
             if (_settings.OcrTranslateInVision)
             {
                 // 單次呼叫：辨識+翻譯一次完成（不套用辨識文字上限——無中間結果可比對）
-                var direct = await _ollamaClient.RecognizeAndTranslateAsync(_settings, imageBase64, ct);
-                CompleteOcrFlow(direct, requestId);
+                if (ShowSource)
+                {
+                    // 顯示原文的版面（①②）：合併提示詞單次取回原文＋譯文（不額外發辨識請求）；
+                    // 分隔符缺席時原文為空＝自然降級（整段當譯文）。
+                    var combined = await _ollamaClient.RecognizeSourceAndTranslateAsync(_settings, imageBase64, ct);
+                    var (source, translation) = OllamaClient.SplitCombinedOcrOutput(combined.Text);
+                    CompleteOcrFlow(new TranslateResult(combined.Success, translation, combined.Error), requestId, source);
+                }
+                else
+                {
+                    // 版面③（不顯示原文）：維持既有提示詞，不多發請求（review focus：不得多發）
+                    var direct = await _ollamaClient.RecognizeAndTranslateAsync(_settings, imageBase64, ct);
+                    CompleteOcrFlow(direct, requestId);
+                }
+
                 return;
             }
 
-            // 兩次呼叫：先辨識
+            // 兩次呼叫：先辨識（版面③亦需辨識文字作翻譯輸入，只是不送進彈窗）
             var ocr = await _ollamaClient.RecognizeOcrTextAsync(_settings, imageBase64, ct);
             if (requestId != _requestId)
             {
@@ -590,9 +632,10 @@ public sealed class AppController : IDisposable
                 return;
             }
 
-            EnsurePopup().ShowTranslation(anchor, TranslatingText);
+            // 改為「翻譯中…」；顯示原文的版面（①②）同步放入辨識文字，版面③ 傳 null
+            EnsurePopup().ShowTranslation(anchor, TranslatingText, ShowSource ? ocr.Text : null);
             var translated = await _ollamaClient.TranslateAsync(_settings, ocr.Text, ct);
-            CompleteOcrFlow(translated, requestId);
+            CompleteOcrFlow(translated, requestId); // 彈窗已於上一行帶過原文，不必重送
         }
         catch (Exception ex)
         {
@@ -600,8 +643,12 @@ public sealed class AppController : IDisposable
         }
     }
 
-    /// <summary>把結果送上彈窗：過期丟棄、成功/取消/錯誤三分，語義同 TranslateAndShowAsync。</summary>
-    private void CompleteOcrFlow(TranslateResult result, int requestId)
+    /// <summary>
+    /// 把結果送上彈窗：過期丟棄、成功/取消/錯誤三分，語義同 TranslateAndShowAsync。
+    /// <paramref name="source"/> 僅合併 OCR 路徑傳入（原文隨譯文一次送達）；兩次呼叫路徑的
+    /// 原文已於改「翻譯中…」時放入彈窗，此處不重送。
+    /// </summary>
+    private void CompleteOcrFlow(TranslateResult result, int requestId, string? source = null)
     {
         if (requestId != _requestId)
         {
@@ -610,7 +657,15 @@ public sealed class AppController : IDisposable
 
         if (result.Success)
         {
-            DeliverToPopup(string.IsNullOrEmpty(result.Text) ? EmptyTranslationText : result.Text);
+            // 空譯文視為失敗訊息（錯誤色顯示「未取得翻譯內容」）
+            if (string.IsNullOrEmpty(result.Text))
+            {
+                DeliverToPopup(EmptyTranslationText, isError: true, source);
+            }
+            else
+            {
+                DeliverToPopup(result.Text, source: source);
+            }
         }
         else if (result.Error.Length == 0)
         {
@@ -618,19 +673,30 @@ public sealed class AppController : IDisposable
         }
         else
         {
-            DeliverToPopup(result.Error);
+            DeliverToPopup(result.Error, isError: true);
         }
     }
 
-    /// <summary>把譯文/錯誤訊息送到現存彈窗；彈窗已被使用者關閉則丟棄訊息。</summary>
-    private void DeliverToPopup(string message)
+    /// <summary>
+    /// 把譯文/錯誤訊息送到現存彈窗；彈窗已被使用者關閉則丟棄訊息。不重新定位彈窗。
+    /// <paramref name="source"/> 非 null（僅合併 OCR 路徑傳入）時先
+    /// <see cref="PopupForm.SetSource"/> 放入原文再 <see cref="PopupForm.SetText"/>；
+    /// 版面③ 的原文區不存在，SetSource 為無動作。譯文為空或 <paramref name="isError"/>
+    /// 為 true 時以錯誤色顯示。
+    /// </summary>
+    private void DeliverToPopup(string message, bool isError = false, string? source = null)
     {
         if (_popup == null || _popup.IsDisposed)
         {
             return;
         }
 
-        _popup.SetText(message);
+        if (source != null)
+        {
+            _popup.SetSource(source);
+        }
+
+        _popup.SetText(message, isError);
     }
 
     /// <summary>取得可用的彈窗實例；舊實例已關閉（Disposed）則以目前設定重建。</summary>
