@@ -93,8 +93,6 @@ public class CaptureService
             WaitModifiersReleased();
 
             if (!SendCtrlC())
-
-            if (!SendCtrlC())
             {
                 return (CaptureOutcome.NoSelection, string.Empty);
             }
