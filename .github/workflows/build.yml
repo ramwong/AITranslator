@@ -18,6 +18,14 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # 建置 ptts_ffi.dll 並下載鎖定修訂的模型檔（gitignored assets/tts/），
+      # dotnet publish 的 EmbeddedResource 條件成立後自動嵌入。
+      - name: Fetch TTS assets
+        run: pwsh scripts/fetch-assets.ps1
+
       - name: Publish
         run: dotnet publish AITranslator.csproj -c Release -r win-x64 -o publish
 

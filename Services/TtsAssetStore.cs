@@ -29,10 +29,11 @@ public sealed class TtsAssetStore
 
     /// <summary>
     /// 內建版本戳記；AppController 未另外指定時以此作為建構子的 versionStamp 傳入。
-    /// 目前為<b>佔位值</b>——Task 8 的 scripts/fetch-assets.ps1 取得模型 commit 後
-    /// 填入唯一真值。
+    /// 值為 <c>&lt;PttsTag&gt;+&lt;ModelCommit&gt;</c>——與 scripts/fetch-assets.ps1
+    /// 鎖定的 xn-ptts tag（v0.6.0）及 phonon-31m-en 模型修訂（HF API sha 欄位，
+    /// 2026-10-31 查得並寫死於 script 預設參數）一致。
     /// </summary>
-    public const string InternalStamp = "0.6.0+<model-sha>";
+    public const string InternalStamp = "0.6.0+92741c5b07d085ff840e26fea8ce43110b87852f";
 
     /// <summary>內嵌資源的 LogicalName 前綴，需與 csproj 的
     /// <c>EmbeddedResource LogicalName="AITranslator.Tts.%(RecursiveDir)..."</c> 對齊。</summary>
