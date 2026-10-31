@@ -37,7 +37,7 @@ public sealed record RegionSelectionResult(Rectangle Rect, RegionSelectionStatus
 /// 全螢幕框選 overlay（OCR 螢幕框選模式的第一步）：
 /// 為 <see cref="Screen.AllScreens"/> 每台螢幕蓋一張暗幕（滑鼠所在螢幕為<b>主</b> overlay，
 /// 其餘為同款<b>輔</b> overlay——純暗幕、不接受拖曳），使用者以十字游標拉一個矩形，
-/// 框內以擷取於暗幕出現<b>前</b>的桌面原圖「亮起」並加白色 1px 邊框；放開左鍵或取消後
+/// 框內以擷取於暗幕出現<b>前</b>的桌面原圖「亮起」並加靛青（<see cref="Theme.Accent"/>）1px 邊框；放開左鍵或取消後
 /// 關閉所有 overlay，<see cref="SelectRegion"/> 回傳矩形與結束狀態。
 ///
 /// <para><b>座標系統（DPI）</b>：全流程使用<b>實體像素</b>座標。專案以
@@ -50,10 +50,10 @@ public sealed record RegionSelectionResult(Rectangle Rect, RegionSelectionStatus
 /// <para><b>繪製</b>：每張 overlay 於 OnPaint 先把桌面原圖（<see cref="SelectRegion"/> 開場、
 /// 任何暗幕出現前以 <see cref="Graphics.CopyFromScreen(int, int, int, int, Size)"/> 拍下的
 /// 虛擬螢幕快照）1:1 畫為底層，再以 <see cref="System.Drawing.Region"/> 排除選取矩形後
-/// 疊 alpha 102 的黑（0.4 黑）當暗幕，最後沿選區畫白色 1px 邊框。刻意<b>不用</b>
+/// 疊 alpha 102 的黑（0.4 黑）當暗幕，最後沿選區畫靛青（<see cref="Theme.Accent"/>）1px 邊框。刻意<b>不用</b>
 /// <see cref="Form.Opacity"/> 建立 layered window：per-pixel alpha 表單的洞內再畫
 /// CopyFromScreen 原圖會「暗幕 × 0.4」double-dim，邊框也會被壓成半透明，
-/// 與「選區內亮起原畫面＋實白邊框」互斥；同時快照必須在暗幕出現前拍——
+/// 與「選區內亮起原畫面＋實色邊框」互斥；同時快照必須在暗幕出現前拍——
 /// 繪製當下再 CopyFromScreen 只會把自己的暗幕抓進來（BitBlt 擷的是含本 overlay 的合成結果）。</para>
 ///
 /// <para><b>輸入</b>：拖曳由<b>滑鼠所在螢幕</b>的主 overlay 處理（MouseDown 記起點並
@@ -87,8 +87,8 @@ public sealed class RegionSelectorForm : Form
     /// <summary>暗幕顏色：alpha 102 的黑（102/255 ≈ 0.4，即 brief 的「暗幕 0.4 黑」；見類別註解的繪製說明）。</summary>
     private static readonly Color CurtainColor = Color.FromArgb(102, 0, 0, 0);
 
-    /// <summary>選取矩形邊框顏色（白色 1px）。</summary>
-    private static readonly Color FrameColor = Color.White;
+    /// <summary>選取矩形邊框顏色（靛青 1px，取自 <see cref="Theme.Accent"/>——spec 的高亮邊）。</summary>
+    private static readonly Color FrameColor = Theme.Accent;
 
     /// <summary>本表單所屬的選取 session（主 overlay 建立；輔 overlay 導向同一份）。null = 尚未開始或已結束。</summary>
     private SelectionSession? _session;
@@ -396,7 +396,7 @@ public sealed class RegionSelectorForm : Form
         FinishSelection(rect, Decide(rect));
     }
 
-    // ---- 繪製（見類別註解：快照為底 + Region 排除選區填半透明黑 + 白 1px 邊框）----
+    // ---- 繪製（見類別註解：快照為底 + Region 排除選區填半透明黑 + 靛青 1px 邊框）----
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -444,10 +444,10 @@ public sealed class RegionSelectorForm : Form
             g.FillRegion(curtain, curtainArea);
         }
 
-        // 3) 白色 1px 邊框——畫在選區「內」的最後一列/行像素上：
+        // 3) 靛青 1px 邊框——畫在選區「內」的最後一列/行像素上：
         //    GDI+ DrawRectangle 把線畫在邊界座標（X+Width / Y+Height）上，比矩形
         //    實際涵蓋的最後一個像素行/列再往外一格；因此以 (Width-1, Height-1)
-        //    指定幾何，讓框完全落在選區像素內（框外不會多出 1px 白線），
+        //    指定幾何，讓框完全落在選區像素內（框外不會多出 1px 邊線），
         //    也讓 OnMouseMove 的「新舊矩形聯集」失效重繪能完整蓋掉縮小方向的殘框
         //    （邊界像素若超出矩形涵蓋範圍，聯集失效區永遠蓋不到——實測即為縮小時殘框的根因）。
         if (!selectionClient.IsEmpty)
