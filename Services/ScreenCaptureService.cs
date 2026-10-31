@@ -6,8 +6,8 @@ namespace AITranslator.Services;
 
 /// <summary>
 /// 擷取螢幕指定區域並編碼為 base64 PNG（供 OCR 帶圖呼叫使用）。
-/// 流程：以 <see cref="Graphics.CopyFromScreen"/>（目的地為新建Bitmap 的
-/// <see cref="Graphics"/>，來源為實體像素螢幕座標）擷取→ 依
+/// 流程：以 <see cref="Graphics.CopyFromScreen"/>（目的地為新建 Bitmap 的
+/// <see cref="Graphics"/>，來源為實體像素螢幕座標）擷取 → 依
 /// <see cref="MaxImageSide"/> 等比縮小（若超過上限）→ 編碼為 PNG → base64 字串。
 /// 全程僅在記憶體中進行，不寫入任何暫存檔。
 /// </summary>

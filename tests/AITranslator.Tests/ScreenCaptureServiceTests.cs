@@ -3,6 +3,10 @@ using Xunit;
 
 namespace AITranslator.Tests;
 
+/// <summary>
+/// 測試 <see cref="ScreenCaptureService.ComputeScale"/> 的縮放界限：
+/// 最長邊不超過 2048 時不縮放（回傳 null），超過 2048 時等比縮小到最長邊恰為 2048。
+/// </summary>
 public class ScreenCaptureServiceTests
 {
     [Theory]

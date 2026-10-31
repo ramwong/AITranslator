@@ -27,7 +27,7 @@ public class AppSettings
     /// <summary>擷取指定畫面區域進行 OCR 的快捷鍵，不可與 <see cref="Hotkey"/>、<see cref="TtsHotkey"/> 相同。</summary>
     public string OcrHotkey { get; set; } = "Ctrl+Alt+I";
 
-    /// <summary>OCR 直接以螢幕上可見的原文辨識並翻譯；停用時改以文字選取方式取得原文。</summary>
+    /// <summary>OCR 直接以螢幕上可見的原文辨識並翻譯：啟用（<see langword="true"/>）時由辨識模型單次呼叫直接輸出譯文；停用（<see langword="false"/>）時為兩次呼叫——辨識模型只輸出辨識文字，翻譯交由現有翻譯模型（<see cref="Model"/>）。</summary>
     public bool OcrTranslateInVision { get; set; }
 
     public int MaxTextLength { get; set; } = 5000;
