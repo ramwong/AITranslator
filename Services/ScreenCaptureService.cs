@@ -6,7 +6,8 @@ namespace AITranslator.Services;
 
 /// <summary>
 /// 擷取螢幕指定區域並編碼為 base64 PNG（供 OCR 帶圖呼叫使用）。
-/// 流程：以桌面 DC (<see cref="Graphics.CopyFromScreen"/>) 擷取→ 依
+/// 流程：以 <see cref="Graphics.CopyFromScreen"/>（目的地為新建Bitmap 的
+/// <see cref="Graphics"/>，來源為實體像素螢幕座標）擷取→ 依
 /// <see cref="MaxImageSide"/> 等比縮小（若超過上限）→ 編碼為 PNG → base64 字串。
 /// 全程僅在記憶體中進行，不寫入任何暫存檔。
 /// </summary>
@@ -35,7 +36,12 @@ public static class ScreenCaptureService
     public static string CaptureToBase64(Rectangle rect)
     {
         using var bitmap = new Bitmap(rect.Width, rect.Height, PixelFormat.Format32bppArgb);
-        using (var g = Graphics.FromHwnd(IntPtr.Zero))
+        // 目的端 Graphics 必須由 bitmap 建立（Graphics.FromImage）：
+        // Graphics.FromHwnd(IntPtr.Zero) 取得的是「桌面 DC」——CopyFromScreen 的目的端即
+        // 螢幕本身，bitmap 完全不會被寫入（每一像素 alpha=0，編碼出全透明的 PNG），
+        // 且來源矩形非 (0,0) 時還會把該螢幕區域 BitBlt 到螢幕左上角（可見 blit 痕跡）。
+        // 來源座標照舊為實體像素（PerMonitorV2 下 CopyFromScreen 直接以實體座標抓圖）。
+        using (var g = Graphics.FromImage(bitmap))
         {
             g.CopyFromScreen(rect.X, rect.Y, 0, 0, rect.Size);
         }
