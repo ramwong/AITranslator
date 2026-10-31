@@ -64,7 +64,9 @@ public sealed record RegionSelectionResult(Rectangle Rect, RegionSelectionStatus
 /// 鍵盤焦點（反目標：造成使用者應用程式的輸入焦點遺失），表單本身收不到 KeyDown，
 /// 故沿用 <see cref="DismissHook"/> 的不變量——hook proc 的每個分支都以
 /// <see cref="Win32.CallNextHookEx"/> 回傳值結束、絕不吞輸入，且右鍵 hook 覆蓋
-/// 所有螢幕（輔 overlay 被 modal loop 停用，表單訊息不可靠）。</para>
+/// 所有螢幕（輔 overlay 被 modal loop 停用，表單訊息不可靠）。兩條 hook 的安裝
+/// 結果逐條檢查（<see cref="InstallHooks"/>）；安裝失敗為退化路徑——僅該條取消
+/// 途徑不可用，框選與結束流程不變（詳見 InstallHooks 註解）。</para>
 ///
 /// <para><b>結束途徑與結果</b>：放開左鍵 → <see cref="Decide"/>（&lt; 8px → TooSmall，否則
 /// Selected）；ESC / 右鍵 / 熱鍵重入（<see cref="CancelSelection"/>）→ Cancelled。
@@ -492,13 +494,34 @@ public sealed class RegionSelectorForm : Form
 
     // ---- ESC / 右鍵取消的 LL hook（觀察型，不變量沿用 DismissHook：絕不吞輸入、例外不外洩）----
 
-    /// <summary>安裝 ESC（WH_KEYBOARD_LL）與右鍵按下（WH_MOUSE_LL）兩條觀察型 LL hook。</summary>
+    /// <summary>
+    /// 安裝 ESC（WH_KEYBOARD_LL）與右鍵按下（WH_MOUSE_LL）兩條觀察型 LL hook。
+    /// 安裝結果逐條檢查：SetWindowsHookExW 失敗（回傳 IntPtr.Zero）時記錄到主控台並繼續
+    /// （不讓框選整段中斷）。退化路徑＝該條取消途徑不可用，其餘不變——
+    /// <list type="bullet">
+    /// <item>ESC hook 失敗：ESC 取消不可用（overlay 不啟動、收不到 KeyDown，LL hook 是唯一 ESC 途徑），</item>
+    /// <item>右鍵 hook 失敗：右鍵取消不可用（含被 modal loop 停用的輔 overlay 螢幕），</item>
+    /// <item>兩者皆失敗：只剩「放開左鍵」可結束（結果為 Selected/TooSmall；Cancelled 僅可由
+    ///  外部 <see cref="CancelSelection"/>——熱鍵重入——達成，且選取終究可正常完成/回傳）。</item>
+    /// </list>
+    /// 一般環境下 LL hook 安裝不會失敗（DismissHook 亦同）。
+    /// </summary>
     private void InstallHooks()
     {
         _keyboardProc = EscapeKeyboardHookProc;
         _keyboardHook = Win32.SetWindowsHookExW(Win32.WH_KEYBOARD_LL, _keyboardProc, IntPtr.Zero, 0);
         _mouseProc = RightButtonMouseHookProc;
         _mouseHook = Win32.SetWindowsHookExW(Win32.WH_MOUSE_LL, _mouseProc, IntPtr.Zero, 0);
+
+        if (_keyboardHook == IntPtr.Zero)
+        {
+            Console.Error.WriteLine("AITranslator: 框選 ESC 取消掛鉤安裝失敗（WH_KEYBOARD_LL）——框選期間 ESC 取消不可用。");
+        }
+
+        if (_mouseHook == IntPtr.Zero)
+        {
+            Console.Error.WriteLine("AITranslator: 框選右鍵取消掛鉤安裝失敗（WH_MOUSE_LL）——框選期間右鍵取消不可用。");
+        }
     }
 
     /// <summary>解除兩條 LL hook 並釋放 delegate 參考（SelectRegion 的 finally 必經；未裝時呼叫為無動作）。</summary>
