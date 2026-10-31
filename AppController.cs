@@ -18,13 +18,36 @@ namespace AITranslator;
 /// <see cref="CaptureOutcome.Success"/> 先顯示「翻譯中…」再 await 翻譯，
 /// 完成後以 <see cref="PopupForm.SetText"/> 更新譯文或錯誤訊息。</para>
 ///
+/// <para><b>螢幕框選（OCR）流程</b>（熱鍵處理同樣在 UI 執行緒）：
+/// 取消進行中請求並遞增請求序號 → <see cref="RegionSelectorForm.SelectRegion"/>（modal
+/// 訊息迴圈，每次新建實例）→ Cancelled 靜默返回；TooSmall toast「框選範圍太小」；
+/// 重入檢查（框選期間有其他熱鍵接管 → 本次取消即過期，不抓圖不發請求）→
+/// 以選取矩形中心為彈窗錨 → <see cref="ScreenCaptureService.CaptureToBase64"/>
+/// （同步，UI 執行緒；順序：overlay 已關「後」才抓，暗幕不會入鏡）→
+/// 顯示「辨識中…」後 await 流程（<see cref="OcrFlowAsync"/>）：
+/// <see cref="AppSettings.OcrTranslateInVision"/> 為 true 時單次呼叫
+/// <see cref="OllamaClient.RecognizeAndTranslateAsync"/>（辨識+翻譯一次完成，
+/// 無中間辨識文字可比對，故不套用長度上限預檢）；否則兩次呼叫——
+/// <see cref="OllamaClient.RecognizeOcrTextAsync"/> → 過期丟棄 → 失敗比照翻譯錯誤路徑 →
+/// 空字串 toast「未辨識到文字」、超上限 toast（<see cref="AppSettings.MaxTextLength"/>）→
+/// 先把彈窗改為「翻譯中…」再 <see cref="OllamaClient.TranslateAsync"/>。完成後
+/// <see cref="CompleteOcrFlow"/>：成功以 <see cref="PopupForm.SetText"/> 送上譯文、
+/// Error 為空（使用者取消）關彈窗、失敗送上錯誤文案，語義同翻譯流程。</para>
+///
+/// <para><b>框選期間的熱鍵重入</b>：框選為 modal 訊息迴圈，期間任何一組熱鍵（含重按的
+/// OCR）都會送達 → 各熱鍵處理<b>開頭</b>一律先
+/// <see cref="RegionSelectorForm.CancelSelection"/>（等同 ESC、無 toast）關閉 overlay，
+/// 再執行該熱鍵自己的完整流程（「後到熱鍵接管」）；被取消的外層
+/// <see cref="OnOcrHotkey"/> 以 Cancelled 靜默返回，重入流程已遞增過序號，
+/// 外層後續不會再發出請求。</para>
+///
 /// <para><b>過期回應防護</b>：每次熱鍵觸發遞增請求序號；await 返回後若序號已過期
 /// （後續請求已接手彈窗）即丟棄結果，避免舊回應覆寫新彈窗或誤關新請求的彈窗。</para>
 ///
 /// <para><b>設定變更</b>：<see cref="SettingsForm"/> 存檔後回呼帶回新設定 →
 /// 重新註冊熱鍵（失敗顯示氣泡通知）、重建 <see cref="CaptureService"/>（新長度上限）、
 /// 關閉舊彈窗使其以新的尺寸/字級重建。
-/// TTS 熱鍵僅在其值變更時重新註冊（其餘設定變更不影響已註冊的朗讀熱鍵）。</para>
+/// TTS／OCR 熱鍵僅在其值變更時重新註冊（其餘設定變更不影響已註冊的熱鍵）。</para>
 ///
 /// <para><b>朗讀（TTS）流程</b>（熱鍵處理同樣在 UI 執行緒）：
 /// 先記滑鼠位置 → <see cref="CaptureService.Capture"/>（同步，先於任何模型載入——
@@ -55,12 +78,19 @@ public sealed class AppController : IDisposable
     private const string TtsInitializingText = "TTS 初始化中…";
     private const string TtsFailedText = "TTS 失敗：{0}";
     private const string TtsFailedUnknownReason = "未知原因";
+    private const string OcrTooSmallText = "框選範圍太小";
+    private const string OcrRecognizingText = "辨識中…";
+    private const string OcrEmptyTextText = "未辨識到文字";
+    private const string OcrTooLongText = "辨識文字超過 {0} 字上限";
 
     /// <summary>翻譯熱鍵的註冊 id（RegisterHotKey / WM_HOTKEY WParam 皆以此識別）。</summary>
     private const int HotkeyIdTranslate = 1;
 
     /// <summary>朗讀（TTS）熱鍵的註冊 id（RegisterHotKey / WM_HOTKEY WParam 皆以此識別）。</summary>
     private const int HotkeyIdTts = 2;
+
+    /// <summary>螢幕框選（OCR）熱鍵的註冊 id（RegisterHotKey / WM_HOTKEY WParam 皆以此識別）。</summary>
+    private const int HotkeyIdOcr = 3;
 
     private readonly string _settingsPath;
     private readonly MessageWindow _window;
@@ -75,7 +105,15 @@ public sealed class AppController : IDisposable
     private PopupForm? _popup;
     private CancellationTokenSource? _cts;
     private bool _disposed;
-    private int _requestId; // 每次熱鍵觸發遞增；過期請求的回應直接丟棄（翻譯專用，與 TTS 流程無關）
+    private int _requestId; // 每次熱鍵觸發遞增；過期請求的回應直接丟棄（翻譯與 OCR 流程共用，與 TTS 流程無關）
+
+    /// <summary>
+    /// 進行中的框選實例（僅 <see cref="OnOcrHotkey"/> 於框選期間持有，供其他熱鍵重入時取消）；
+    /// null = 沒有框選在進行。框選為 modal 訊息迴圈，期間後到熱鍵會送達——各熱鍵處理開頭
+    /// 呼叫 <see cref="RegionSelectorForm.CancelSelection"/>（等同 ESC、無 toast）讓外層
+    /// <see cref="RegionSelectorForm.SelectRegion"/> 先返回。實例為單次使用，每次框選都新建。
+    /// </summary>
+    private RegionSelectorForm? _activeRegionSelector;
 
     /// <summary>
     /// 首次按壓（NotLoaded/Failed 態）擷取到的待播文字；待 Loading→Ready 轉移時播放並清空。
@@ -128,6 +166,11 @@ public sealed class AppController : IDisposable
         {
             ShowRegisterFailureBalloon(); // 與翻譯熱鍵共用同一則氣泡通知
         }
+
+        if (!_hotkeyService.Register(HotkeyIdOcr, _settings.OcrHotkey))
+        {
+            ShowRegisterFailureBalloon(); // 與翻譯熱鍵共用同一則氣泡通知
+        }
     }
 
     /// <summary>
@@ -176,6 +219,7 @@ public sealed class AppController : IDisposable
     private void OnSettingsChanged(AppSettings newSettings)
     {
         var oldTtsHotkey = _settings.TtsHotkey;
+        var oldOcrHotkey = _settings.OcrHotkey;
         _settings = newSettings;
         _captureService = new CaptureService(newSettings.MaxTextLength);
 
@@ -191,6 +235,13 @@ public sealed class AppController : IDisposable
             ShowRegisterFailureBalloon();
         }
 
+        // OCR 熱鍵同 TTS：僅在值變更時重新註冊（其餘設定變更不動框選熱鍵）
+        if (!string.Equals(newSettings.OcrHotkey, oldOcrHotkey, StringComparison.Ordinal)
+            && !_hotkeyService.ReRegister(HotkeyIdOcr, newSettings.OcrHotkey))
+        {
+            ShowRegisterFailureBalloon(); // 失敗共用同一則氣泡通知
+        }
+
         DiscardPopup();
     }
 
@@ -201,7 +252,8 @@ public sealed class AppController : IDisposable
 
     /// <summary>
     /// WM_HOTKEY 分派（UI 執行緒）：依註冊 id 導向對應流程。
-    /// <see cref="HotkeyIdTranslate"/> 走翻譯流程；<see cref="HotkeyIdTts"/> 走朗讀流程。
+    /// <see cref="HotkeyIdTranslate"/> 走翻譯流程；<see cref="HotkeyIdTts"/> 走朗讀流程；
+    /// <see cref="HotkeyIdOcr"/> 走螢幕框選（OCR）流程。
     /// </summary>
     private void OnHotkeyDispatch(int hotkeyId)
     {
@@ -213,6 +265,10 @@ public sealed class AppController : IDisposable
 
             case HotkeyIdTts:
                 OnTtsHotkey();
+                return;
+
+            case HotkeyIdOcr:
+                OnOcrHotkey();
                 return;
         }
     }
@@ -233,9 +289,12 @@ public sealed class AppController : IDisposable
     /// <item><see cref="TtsState.Ready"/> → <see cref="TtsService.Toggle"/> 開始播放（靜默）；
     ///  <see cref="TtsState.Speaking"/> → <see cref="TtsService.Toggle"/> 停止（靜默）。</item>
     /// </list>
+    /// 若此刻正在框選（OCR 流程），開頭先取消框選（等同 ESC、無 toast）：後到熱鍵接管。
     /// </summary>
     private void OnTtsHotkey()
     {
+        _activeRegionSelector?.CancelSelection(); // 框選期間被本熱鍵接管：先關 overlay（等同 ESC、無 toast）
+
         _uiContext ??= SynchronizationContext.Current; // 擷取 UI 執行緒上下文，供 StateChanged 封送
 
         var mouse = Cursor.Position; // 擷取前先記下位置（Capture 期間游標可能移動）
@@ -342,9 +401,12 @@ public sealed class AppController : IDisposable
     /// 翻譯熱鍵流程（UI 執行緒）：取消進行中的請求 → 同步擷取選取文字 →
     /// 依結果顯示 toast 或「翻譯中…」後啟動翻譯。
     /// 擷取（Clipboard + SendInput）必須同步在 UI 執行緒完成，await 之後才開始。
+    /// 若此刻正在框選（OCR 流程），先取消框選（等同 ESC）：後到熱鍵接管。
     /// </summary>
     private void OnHotkey()
     {
+        _activeRegionSelector?.CancelSelection(); // 框選期間被本熱鍵接管：先關 overlay，外層 SelectRegion 因而先返回
+
         if (_cts != null)
         {
             _cts.Cancel();
@@ -421,6 +483,145 @@ public sealed class AppController : IDisposable
         }
     }
 
+    /// <summary>
+    /// 螢幕框選（OCR）熱鍵流程（UI 執行緒）：
+    /// 取消進行中請求（<c>_cts</c> cancel/dispose/null）、遞增請求序號、清理已關閉的舊彈窗
+    /// （三步與 <see cref="OnHotkey"/> 開頭相同；此刻如在框選，重入的處理已於開頭先取消舊框選）→
+    /// 新建 <see cref="RegionSelectorForm"/> 進 modal 框選（實例單次使用，每次新建；
+    /// 於 SelectRegion 前指派 <c>_activeRegionSelector</c>、返回後清 null，清 null 帶身份檢查：
+    /// 框選若在 modal 迴圈期間被子熱鍵取消，本層 SelectRegion 會於重入層的 modal 迴圈中先返回，
+    /// 此時欄位屬於重入層，不可清掉其參考）→
+    /// Cancelled 靜默返回；TooSmall toast「框選範圍太小」；重入檢查（序號已過期＝框選期間
+    /// 有其他熱鍵接管）不抓圖不發請求；Selected 以矩形中心為錨同步抓 base64
+    /// （<see cref="ScreenCaptureService.CaptureToBase64"/>，順序：overlay 已關「後」才抓，
+    /// 暗幕不會入鏡）→ 顯示「辨識中…」→ await <see cref="OcrFlowAsync"/>。
+    /// </summary>
+    private void OnOcrHotkey()
+    {
+        _activeRegionSelector?.CancelSelection(); // 框選期間被重按接管：先關 overlay（等同 ESC、無 toast）
+
+        if (_cts != null)
+        {
+            _cts.Cancel();
+            _cts.Dispose();
+            _cts = null;
+        }
+
+        _requestId++;
+
+        if (_popup != null && _popup.IsDisposed)
+        {
+            _popup = null;
+        }
+
+        var requestId = _requestId; // 記下本請求序號：框選期間若被其他熱鍵接管，此值即過期
+
+        var selector = new RegionSelectorForm();
+        _activeRegionSelector = selector;
+        var selection = selector.SelectRegion();
+        if (ReferenceEquals(_activeRegionSelector, selector))
+        {
+            // 清 null 帶身份檢查：框選若被子熱鍵（在同一個 UI 執行緒上）取消，本層 SelectRegion
+            // 會在重入層的 modal 迴圈中先返回——此時欄位屬於重入層，不可清掉它的參考。
+            _activeRegionSelector = null;
+        }
+
+        if (selection.Status == RegionSelectionStatus.Cancelled)
+        {
+            return; // 使用者取消（ESC / 右鍵 / 後到熱鍵接管）：靜默，無 toast
+        }
+
+        if (selection.Status == RegionSelectionStatus.TooSmall)
+        {
+            EnsurePopup().ShowToast(Cursor.Position, OcrTooSmallText);
+            return;
+        }
+
+        if (requestId != _requestId)
+        {
+            return; // 框選期間有後到熱鍵接管：不抓圖、不發請求
+        }
+
+        var anchor = new Point(selection.Rect.X + selection.Rect.Width / 2, selection.Rect.Y + selection.Rect.Height / 2);
+
+        // 同步擷取（UI 執行緒；SelectRegion 已關閉所有 overlay，暗幕不會入鏡）
+        var image = ScreenCaptureService.CaptureToBase64(selection.Rect);
+
+        EnsurePopup().ShowTranslation(anchor, OcrRecognizingText);
+        OcrFlowAsync(anchor, image, requestId, NewCts().Token);
+    }
+
+    /// <summary>框選後的 OCR 流程：單次呼叫模式（辨識+翻譯一次完成）或兩次呼叫模式（辨識 → 預檢 → 翻譯）。</summary>
+    private async void OcrFlowAsync(Point anchor, string imageBase64, int requestId, CancellationToken ct)
+    {
+        try
+        {
+            if (_settings.OcrTranslateInVision)
+            {
+                // 單次呼叫：辨識+翻譯一次完成（不套用辨識文字上限——無中間結果可比對）
+                var direct = await _ollamaClient.RecognizeAndTranslateAsync(_settings, imageBase64, ct);
+                CompleteOcrFlow(direct, requestId);
+                return;
+            }
+
+            // 兩次呼叫：先辨識
+            var ocr = await _ollamaClient.RecognizeOcrTextAsync(_settings, imageBase64, ct);
+            if (requestId != _requestId)
+            {
+                return; // 過期防護（同 TranslateAndShowAsync）
+            }
+
+            if (!ocr.Success)
+            {
+                CompleteOcrFlow(ocr, requestId); // LLM/HTTP 層失敗：比照翻譯錯誤路徑
+                return;
+            }
+
+            // 辨識文字預檢（spec §6）：空字串與超上限都用 toast（短暫提示，不佔彈窗）
+            if (ocr.Text.Length == 0)
+            {
+                EnsurePopup().ShowToast(anchor, OcrEmptyTextText);
+                return;
+            }
+
+            if (ocr.Text.Length > _settings.MaxTextLength)
+            {
+                EnsurePopup().ShowToast(anchor, string.Format(OcrTooLongText, _settings.MaxTextLength));
+                return;
+            }
+
+            EnsurePopup().ShowTranslation(anchor, TranslatingText);
+            var translated = await _ollamaClient.TranslateAsync(_settings, ocr.Text, ct);
+            CompleteOcrFlow(translated, requestId);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"AITranslator: OCR 流程未預期例外：{ex}");
+        }
+    }
+
+    /// <summary>把結果送上彈窗：過期丟棄、成功/取消/錯誤三分，語義同 TranslateAndShowAsync。</summary>
+    private void CompleteOcrFlow(TranslateResult result, int requestId)
+    {
+        if (requestId != _requestId)
+        {
+            return;
+        }
+
+        if (result.Success)
+        {
+            DeliverToPopup(string.IsNullOrEmpty(result.Text) ? EmptyTranslationText : result.Text);
+        }
+        else if (result.Error.Length == 0)
+        {
+            DiscardPopup(); // 使用者取消
+        }
+        else
+        {
+            DeliverToPopup(result.Error);
+        }
+    }
+
     /// <summary>把譯文/錯誤訊息送到現存彈窗；彈窗已被使用者關閉則丟棄訊息。</summary>
     private void DeliverToPopup(string message)
     {
@@ -485,6 +686,7 @@ public sealed class AppController : IDisposable
         DiscardPopup();
         _hotkeyService.Unregister(HotkeyIdTranslate);
         _hotkeyService.Unregister(HotkeyIdTts);
+        _hotkeyService.Unregister(HotkeyIdOcr);
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
         Application.Exit();
@@ -505,6 +707,7 @@ public sealed class AppController : IDisposable
         _pendingTtsText = null;
         _hotkeyService.Unregister(HotkeyIdTranslate);
         _hotkeyService.Unregister(HotkeyIdTts);
+        _hotkeyService.Unregister(HotkeyIdOcr);
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
     }
