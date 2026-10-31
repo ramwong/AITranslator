@@ -426,8 +426,12 @@ public class SettingsForm : Form
         table.Controls.Add(_errorLabel, 0, errorRow);
         table.SetColumnSpan(_errorLabel, 2);
 
+        // 先加按鈕列再加內容表：按鈕列必須最後變成最上層 child（加完 table 後拉到最前），
+        // 防 clamp + AutoScroll 模式下高出工作區的內容表蓋住底部「儲存/取消」按鈕列。
+        var bar = BuildButtonBar(); // 同步設定 AcceptButton/CancelButton
         Controls.Add(table);
-        Controls.Add(BuildButtonBar()); // 同步設定 AcceptButton/CancelButton
+        Controls.Add(bar);
+        bar.BringToFront();
     }
 
     /// <summary>加入小節標題列（跨兩欄）：Caption 色小標 + 貼列底髮絲分隔線。</summary>
