@@ -34,6 +34,13 @@ namespace AITranslator.UI;
 /// <see langword="Esc"/> 取消、點擊本控制項以外處（見 <see cref="OnLostFocus"/>）——
 /// 狀態機沒有卡住的分支。</para>
 ///
+/// <para><b>Esc／Enter 與宿主表單按鈕</b>：錄製態同樣經 <see cref="OnPreviewKeyDown"/>
+/// 把 <see cref="Keys.Escape"/> 與 <see cref="Keys.Enter"/> 標記為輸入鍵，否則
+/// <c>Form.ProcessDialogKey</c> 會先於本控制項把它們導向宿主的 <c>CancelButton</c>
+/// （<see langword="Esc"/> 取消不了錄製）或 <c>AcceptButton</c>（<see cref="Keys.Enter"/>
+/// 誤觸提交；鍵不在錄入白名單，於 <see cref="OnKeyDown"/> 吃掉、保持錄製）。
+/// 本控制項不更動表單的按鈕設定；靜止態兩鍵照常放行給表單。</para>
+///
 /// <para><b>自繪</b>：繼承 <see cref="Control"/> 自繪（UserPaint + DoubleBuffer），
 /// 配色全部取自 <see cref="Theme"/>（Paper 底、Hairline 靜止邊框、Ink 現值文字、
 /// Caption 提示小字、Accent 錄製態、Error 錯誤態），不硬編色值；字體統一
@@ -114,12 +121,16 @@ public class HotkeyCaptureBox : Control
     /// <summary>錄入成功（通過重複驗證）時引發，帶正規化後的新值（與 <see cref="Value"/> 同）。</summary>
     public event EventHandler<string>? ValueChanged;
 
-    /// <summary>錄製態下把 Tab／方向鍵標記為輸入鍵，抑制 focus navigation 移走焦點
-    /// （鍵本身不可錄製、於 <see cref="OnKeyDown"/> 忽略；見類別說明的取捨）。</summary>
+    /// <summary>錄製態下把 Tab／方向鍵與 <see cref="Keys.Escape"/>、<see cref="Keys.Enter"/>
+    /// 標記為輸入鍵：前者抑制 focus navigation 移走焦點（鍵本身不可錄製、於
+    /// <see cref="OnKeyDown"/> 忽略；見類別說明的取捨）；後者避免被宿主表單的
+    /// <c>CancelButton</c>／<c>AcceptButton</c> 攔走——<see cref="Keys.Escape"/> 需於
+    /// <see cref="OnKeyDown"/> 還原現值、<see cref="Keys.Enter"/> 不在錄入白名單故被吃掉。
+    /// </summary>
     protected override void OnPreviewKeyDown(PreviewKeyDownEventArgs e)
     {
         base.OnPreviewKeyDown(e);
-        if (_recording && IsFocusNavigationKey(e.KeyCode))
+        if (_recording && (IsFocusNavigationKey(e.KeyCode) || IsRecordingCancelOrSubmitKey(e.KeyCode)))
         {
             e.IsInputKey = true;
         }
@@ -368,6 +379,13 @@ public class HotkeyCaptureBox : Control
     /// <summary>判斷是否為離開本控制項（focus navigation）用鍵：Tab 與四個方向鍵。</summary>
     private static bool IsFocusNavigationKey(Keys code)
         => code is Keys.Tab or Keys.Up or Keys.Down or Keys.Left or Keys.Right;
+
+    /// <summary>判斷是否需於錄製態繞過宿主表單預設按鈕的鍵：<see cref="Keys.Escape"/>
+    /// （否則 <c>Form.ProcessDialogKey</c> 先於本控制項觸發 <c>CancelButton</c>）與
+    /// <see cref="Keys.Enter"/>（同理觸發 <c>AcceptButton</c>；鍵不在錄入白名單，
+    /// 於 <see cref="OnKeyDown"/> 吃掉、保持錄製）。僅錄製態套用，靜止態照常放行。</summary>
+    private static bool IsRecordingCancelOrSubmitKey(Keys code)
+        => code is Keys.Escape or Keys.Enter;
 
     /// <summary>以主題字族建立字型；系統無該字族時回 null（呼叫端退回系統預設字族）。</summary>
     /// <remarks>模式沿用 <see cref="PopupForm.TryCreateFont"/>：<see cref="Font"/> 建構子
