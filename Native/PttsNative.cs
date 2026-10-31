@@ -111,6 +111,9 @@ internal static class PttsNative
     /// 回傳 <c>true</c> 繼續。實作<b>絕不可拋出例外</b>：受控例外跨越反向 P/Invoke 邊界
     /// 會直接終結處理程序，任何錯誤必須以回傳值（false）表達。
     /// </summary>
+    // 與 ptts_speak 同契約：原生 bool 為 1 byte，委派回傳亦明確以 I1 封送（一行保險，
+    // 委派 thunk 本就寫入乾淨的 0/1，不受 eax 殘值影響）。
+    [return: MarshalAs(UnmanagedType.I1)]
     internal delegate bool PttsFrameFn(IntPtr pcm, UIntPtr n, IntPtr user);
 
     /// <summary>
@@ -139,7 +142,10 @@ internal static class PttsNative
     private static extern IntPtr ptts_new(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string dir, uint unit, [MarshalAs(UnmanagedType.LPUTF8Str)] string lang);
 
+    // 回傳 bool 以 I1 封送：Rust 的 extern "C" bool 只回 1 byte（al），而 managed bool 預設以
+    // 4-byte BOOL 讀取整個 eax——al=0 失敗搭配 eax 前三 byte 的殘值會被誤判為成功。
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool ptts_speak(
         IntPtr h,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string text,
