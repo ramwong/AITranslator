@@ -30,8 +30,9 @@ public delegate void SettingsChangedCallback(AppSettings newSettings);
 /// 快捷鍵為「點擊錄製」的 <see cref="HotkeyCaptureBox"/>：錄到與其他快捷鍵重複的
 /// 組合鍵當場 inline 擋下（<see cref="HotkeyCaptureBox.DuplicateValidator"/>），
 /// 不等按「儲存」才發現。表單配色／字體套 <see cref="Theme"/>（Paper 底、Ink 字、
-/// FooterBg 按鈕列、Accent 主按鈕），AutoSize；內容高於螢幕工作區時改為固定高度
-/// 並啟用 <see cref="Form.AutoScroll"/>（「滑動到第一個錯誤」於此模式下生效）。
+/// FooterBg 按鈕列、Accent 主按鈕），AutoSize；內容高於螢幕工作區時改為固定高度，
+/// 捲動容器（只包內容、按鈕列 dock 在容器外的 form 上）啟用其 AutoScroll——按鈕列
+/// 於 clamp 模式仍固定在視窗底部（「滑動到第一個錯誤」於此模式下生效）。
 /// </summary>
 public class SettingsForm : Form
 {
@@ -56,6 +57,9 @@ public class SettingsForm : Form
     private readonly CheckBox _ocrTranslateInVisionBox;
     private readonly TextBox _maxTextLengthBox;
     private readonly CheckBox _startWithWindowsBox;
+
+    // ---- 捲動容器：只包內容表；按鈕列 dock 在其外的 form 上，clamp 模式仍固定視窗底 ----
+    private readonly Panel _scrollHost = new();
 
     // ---- inline 驗證指示（spec：移除逐欄 MessageBox）----
     private readonly Label _errorLabel; // 按鈕列上方的一行錯誤說明（隱藏＝無錯誤）
@@ -147,7 +151,8 @@ public class SettingsForm : Form
         base.Dispose(disposing);
     }
 
-    /// <summary>顯示後依表單所在螢幕的工作區高度收合：內容過高時固定高度並啟用捲動。</summary>
+    /// <summary>顯示後依表單所在螢幕的工作區高度收合：內容過高時固定高度，超出部分
+    /// 交由只包內容的捲動容器捲動（按鈕列 dock 在 form 上，始終固定在視窗底部）。</summary>
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
@@ -158,10 +163,15 @@ public class SettingsForm : Form
             return;
         }
 
-        // AutoScroll 與 AutoSize 互斥（後者會讓前者被忽略）：先解除 AutoSize
-        // 才能固定高度、以捲動方式呈現超出工作區的內容。
+        // 只解除表單 AutoSize 才能固定高度；AutoScroll 開在 _scrollHost（此處才切換），
+        // 不開在表單上——表單一旦 AutoScroll，DisplayRectangle 會把 docked children 納進
+        // 捲動文件，docked-bottom 按鈕列就被釘在捲動文件底而非視口底。
+        // _scrollHost 的 AutoScroll 開啟會令其自我尺寸失效（AutoScroll 容器不再隨內容
+        // 自適應），且 AutoScroll 容器不參與表單 AutoSize 偏好尺寸計算——故僅 clamp 時才開
+        // （未 clamp 不需捲動；表單仍 AutoSize，按 Dock=Fill + AutoSize 自然收放）。
+        _scrollHost.AutoSize = false;
+        _scrollHost.AutoScroll = true;
         AutoSize = false;
-        AutoScroll = true;
         Height = workingArea.Height;
     }
 
@@ -327,7 +337,7 @@ public class SettingsForm : Form
         DialogResult = DialogResult.None;
         _errorMarkers[field].Visible = true;
         ShowErrorLine(message);
-        ScrollControlIntoView(field); // 未啟用捲動時為無作用；開捲動模式即「滑動到第一個錯誤」
+        _scrollHost.ScrollControlIntoView(field); // 未超出視口（無捲動）時為無作用；clamp 模式即「滑動到第一個錯誤」
         field.Focus();
         if (field is TextBox textBox)
         {
@@ -383,8 +393,8 @@ public class SettingsForm : Form
 
     private void BuildLayout()
     {
-        // 表單不留 Dock 的內容體：AutoSize 表單依其偏好尺寸收放；
-        // OnShown clamp 啟用 AutoScroll 後超出部分即以捲動呈現。
+        // 內容表（AutoSized）自身不 dock：在捲動容器內以偏好尺寸呈現，
+        // clamp 模式超出視口的部分即在容器捲動文件上捲動呈現。
         var table = new TableLayoutPanel
         {
             AutoSize = true,
@@ -426,12 +436,21 @@ public class SettingsForm : Form
         table.Controls.Add(_errorLabel, 0, errorRow);
         table.SetColumnSpan(_errorLabel, 2);
 
-        // 先加按鈕列再加內容表：按鈕列必須最後變成最上層 child（加完 table 後拉到最前），
-        // 防 clamp + AutoScroll 模式下高出工作區的內容表蓋住底部「儲存/取消」按鈕列。
+        // 捲動容器只包內容；按鈕列 dock 在 form 外，clamp 時仍固定在視窗底部。
+        // _scrollHost 常態 Dock=Fill + AutoSize（偏好尺寸隨內容表參與表單 AutoSize 計算：
+        // 表單偏好高＝內容高＋按鈕列高，二者貼合不重疊）；AutoScroll 僅 OnShown clamp
+        // 時開啟（AutoScroll 容器不再自我尺寸、也不參與偏好計算，常態開啟會令表單塌縮），
+        // clamp 後按鈕列（加入次序在其後＝docking 最先套用）先佔 Bottom，其餘為捲動視口。
+        _scrollHost.AutoScroll = false; // 僅 clamp 模式捲動；常態開啟會破壞 AutoSize 偏好計算
+        _scrollHost.Dock = DockStyle.Fill;
+        _scrollHost.AutoSize = true;
+        _scrollHost.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        _scrollHost.Margin = new Padding(0);
+        _scrollHost.Padding = new Padding(0);
+        _scrollHost.Controls.Add(table);
         var bar = BuildButtonBar(); // 同步設定 AcceptButton/CancelButton
-        Controls.Add(table);
-        Controls.Add(bar);
-        bar.BringToFront();
+        Controls.Add(_scrollHost);
+        Controls.Add(bar); // 加於 _scrollHost 之後：docking 次序最先（bar 先佔 Bottom）且最上層繪製
     }
 
     /// <summary>加入小節標題列（跨兩欄）：Caption 色小標 + 貼列底髮絲分隔線。</summary>
