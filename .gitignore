@@ -5,3 +5,5 @@ TestResults/
 .vs/
 publish/
 assets/
+.superpowers/
+.codegraph/
