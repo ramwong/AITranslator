@@ -7,7 +7,8 @@ namespace AITranslator.Native;
 /// 避免各服務各自散落 DllImport。目前涵蓋剪貼簿序號查詢、剪貼簿原始格式備份/還原
 /// （OpenClipboard / EnumClipboardFormats / GlobalLock 等）、SendInput 模擬按鍵、
 /// 全域快速鍵註冊（RegisterHotKey / UnregisterHotKey / WM_HOTKEY），
-/// 以及低層級滑鼠/鍵盤掛鉤（SetWindowsHookExW / UnhookWindowsHookEx / CallNextHookEx）。
+/// 低層級滑鼠/鍵盤掛鉤（SetWindowsHookExW / UnhookWindowsHookEx / CallNextHookEx），
+/// 以及用於 TTS 串流播放的 waveOut 音訊輸出（waveOutOpen / waveOutWrite / waveOutReset / waveOutClose）。
 /// </summary>
 internal static class Win32
 {
@@ -177,4 +178,79 @@ internal static class Win32
         public uint time;
         public UIntPtr dwExtraInfo;
     }
+
+    // ---- waveOut 音訊輸出（WaveOutSink）----
+
+    /// <summary>波形格式：IEEE float32。</summary>
+    internal const ushort WAVE_FORMAT_IEEE_FLOAT = 3;
+    /// <summary>waveOutOpen 的裝置 ID：請系統自行挑選預設輸出裝置。</summary>
+    internal const uint WAVE_MAPPER = 0xFFFFFFFF;
+    /// <summary>waveOutOpen 的 fdwOpen：以函式回呼通報事件。</summary>
+    internal const uint CALLBACK_FUNCTION = 0x30000;
+
+    /// <summary>已送回應用程式的緩衝（播畢或被 Reset 收回），內容可複用。</summary>
+    internal const uint WHDR_DONE = 0x0001;
+    /// <summary>waveOutPrepareHeader 已備妥。</summary>
+    internal const uint WHDR_PREPARED = 0x0002;
+    /// <summary>緩衝仍在裝置佇列（不可釋放/複用）。</summary>
+    internal const uint WHDR_INQUEUE = 0x0010;
+
+    internal const uint WOM_OPEN = 0x3BB;
+    internal const uint WOM_CLOSE = 0x3BC;
+    /// <summary>一個緩衝播畢（或被 Reset 收回）並已送回應用程式。</summary>
+    internal const uint WOM_DONE = 0x3BD;
+
+    /// <summary>
+    /// waveOut 回呼：由 winmm 自己的執行緒呼叫。<paramref name="dwParam1"/> 指向送回的 WAVEHDR。
+    /// 實作端絕不可拋出例外，也不可在此呼叫 waveOut* 佇列類函式（winmm 的限制）。
+    /// </summary>
+    internal delegate void WaveOutProc(IntPtr hwo, uint uMsg, IntPtr dwInstance, IntPtr dwParam1, IntPtr dwParam2);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WAVEFORMATEX
+    {
+        public ushort wFormatTag;
+        public ushort nChannels;
+        public uint nSamplesPerSec;
+        public uint nAvgBytesPerSec;
+        public ushort nBlockAlign;
+        public ushort wBitsPerSample;
+        public ushort cbSize;
+    }
+
+    /// <summary>
+    /// 波形緩衝標頭（非託管記憶體中維護）：lpData 指向樣本記憶體、dwBufferLength 為位元組數。
+    /// 已 waveOutWrite 的標頭與其樣本記憶體在收到 WOM_DONE 前不可釋放或複用。
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WAVEHDR
+    {
+        public IntPtr lpData;
+        public uint dwBufferLength;
+        public uint dwBytesRecorded;
+        public IntPtr dwUser;
+        public uint dwFlags;
+        public uint dwLoops;
+        public IntPtr lpNext;
+        public IntPtr reserved;
+    }
+
+    [DllImport("winmm.dll")]
+    internal static extern uint waveOutOpen(
+        out IntPtr phwo, uint uDeviceID, ref WAVEFORMATEX pwfx, WaveOutProc dwCallback, IntPtr dwInstance, uint fdwOpen);
+
+    [DllImport("winmm.dll")]
+    internal static extern uint waveOutPrepareHeader(IntPtr hwo, IntPtr pwh, uint cbwh);
+
+    [DllImport("winmm.dll")]
+    internal static extern uint waveOutUnprepareHeader(IntPtr hwo, IntPtr pwh, uint cbwh);
+
+    [DllImport("winmm.dll")]
+    internal static extern uint waveOutWrite(IntPtr hwo, IntPtr pwh, uint cbwh);
+
+    [DllImport("winmm.dll")]
+    internal static extern uint waveOutReset(IntPtr hwo);
+
+    [DllImport("winmm.dll")]
+    internal static extern uint waveOutClose(IntPtr hwo);
 }
