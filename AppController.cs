@@ -234,9 +234,30 @@ public sealed class AppController : IDisposable
     }
 
     /// <summary>開啟（強制回）設定對話框；存檔成功後由回呼帶回新設定。</summary>
-    private void ShowSettings()
+    private void ShowSettings() => ShowSettings(fromPopup: false);
+
+    /// <summary>
+    /// 開啟設定視窗（強制回應）。
+    /// <paramref name="fromPopup"/> 為 true（彈窗「⚙」路由）：no-activate 彈窗的
+    /// 按鈕點擊<b>不賦予</b>前景啟動權，modal 視窗會被 Windows 壓到使用者目前視窗
+    /// 後面（實測：視窗有開、被前景鎖擋住）——先以 TopMost 現身，使用者一點它
+    /// 取得啟動後即還原為非置頂，避免之後干擾其他視窗。
+    /// </summary>
+    private void ShowSettings(bool fromPopup)
     {
         using var form = new SettingsForm(_settingsPath, OnSettingsChanged);
+        if (fromPopup)
+        {
+            form.TopMost = true;
+            EventHandler? dropTopMost = null;
+            dropTopMost = (_, _) =>
+            {
+                form.TopMost = false;
+                form.Activated -= dropTopMost;
+            };
+            form.Activated += dropTopMost;
+        }
+
         form.ShowDialog();
     }
 
@@ -804,7 +825,7 @@ public sealed class AppController : IDisposable
     private void OnPopupSettingsRequested()
     {
         DiscardPopup();
-        ShowSettings();
+        ShowSettings(fromPopup: true); // no-activate 點擊無啟動權：需 TopMost 才不會被壓在後面
     }
 
     /// <summary>

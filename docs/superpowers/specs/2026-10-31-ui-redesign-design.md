@@ -38,7 +38,9 @@
 | Error | `#C2410C` | 赭紅：錯誤語意（全案唯一彩度歸屬，錯誤以外不得使用暖色） |
 | MutedBtn | `#6E6A5E` | 幽靈按鈕文字 |
 
-間距 token：卡片圓角 10px、外內距 12–16px、動作列高約 36px、面板內距 10–12px（builder 微調）。
+間距 token：卡片圓角 10px、外內距 12–16px、動作列高約 36px（bug-fix round 修訂為 44px——實測 AutoSize 按鈕需 31px 完整高度，36px 帶高僅 23px 會把按鈕裁掉上下緣）、面板內距 10–12px（builder 微調）。
+
+顯示層文字正規化（bug-fix round 2026-11-01）：Win32 EDIT 只渲染 CRLF——模型輸出 LF 行在彈窗不可見、複製出去正常，顯示前統一 \r\n；微軟正黑對 U+2019/U+2018 以全形寬度渲染（實測 25px vs ASCII 13px @12pt），原文框顯示層代換為 ASCII 撇號。正規化僅入顯示；剪貼簿與 TTS 一律使用原始字串。
 
 字體 token：全文統一「Microsoft JhengHei」；字級沿用設定值（`FontSize`，預設 12pt），譯文字級 = 設定值 + 2pt 級距由 builder 定。英文與數字允許 Segoe UI fallback 併排。
 

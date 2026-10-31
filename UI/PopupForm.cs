@@ -126,6 +126,7 @@ public class PopupForm : Form
     private Color _statusDotColor = Theme.Ink; // 圓點目前顏色（Paint 事件用）
     private System.Windows.Forms.Timer? _toastTimer; // toast 自動關閉計時器；重用入口取消
     private string? _result;   // 目前譯文；SetText 前為 null（isError 時恆 null）
+    private string? _source;   // 原始原文字串（未經顯示層正規化）：複製原文/朗讀一律用此，不得用 _sourceBox.Text
     private bool _busy;        // ShowTranslation → SetText/Close 之間為 true
     private bool _isShowingResult; // 正呈現譯文/錯誤內容（非 toast、非 busy）
     private bool _dismissHooked;
@@ -390,7 +391,11 @@ public class PopupForm : Form
     /// </summary>
     public void SetSource(string source)
     {
-        _sourceBox.Text = source ?? string.Empty; // TextChanged 同步按鈕狀態與面板高度
+        // 顯示用字串需正規化（EDIT 控制項只渲染 CRLF；微軟正黑的 U+2019/U+2018 以
+        // 全形前進寬度渲染成 "' s"——見 DisplayText）；原始字串另存 _source，
+        // 複製原文與朗讀一律走 _source，剪貼簿與 TTS 不被顯示層代換污染。
+        _source = source;
+        _sourceBox.Text = DisplayText.Source(_source ?? string.Empty); // TextChanged 同步按鈕狀態與面板高度
         UpdateSourceButtons();
         UpdateSourcePanelHeight();
     }
@@ -411,7 +416,7 @@ public class PopupForm : Form
         _result = isError ? null : result;
         _busy = false;
         _isShowingResult = true;
-        _translationBox.Text = result ?? string.Empty;
+        _translationBox.Text = DisplayText.Translation(result); // EDIT 只渲染 CRLF；複製走原始 _result
         _translationBox.ForeColor = isError ? Theme.Error : Theme.Ink;
 
         if (isError)
@@ -537,13 +542,14 @@ public class PopupForm : Form
     /// <summary>目前原文寫入剪貼簿，但<b>不</b>關閉彈窗（核對原文多半還要看譯文）。</summary>
     private void OnSourceCopyButtonClick(object? sender, EventArgs e)
     {
-        CopyToClipboard(_sourceBox.Text);
+        // 剪貼簿走原始字串（未經顯示層正規化），與「複製譯文」同套資料契約。
+        CopyToClipboard(_source);
     }
 
-    /// <summary>朗讀鈕：以「彈窗內的原文」請求 TTS；空原文不發事件。</summary>
+    /// <summary>朗讀鈕：以「彈窗內的原文」（原始字串）請求 TTS；空原文不發事件。</summary>
     private void OnTtsButtonClick(object? sender, EventArgs e)
     {
-        var source = _sourceBox.Text;
+        var source = _source ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(source))
         {
             TtsRequested?.Invoke(source);

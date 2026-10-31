@@ -48,8 +48,12 @@ internal static class Theme
 
     // ---- 尺寸 token（spec 間距 token 表；builder 可依實測微調的使用處不在此列）----
 
-    /// <summary>彈窗動作列高度（px）。</summary>
-    internal const int FooterHeight = 36;
+    /// <summary>
+    /// 彈窗動作列高度（px）：1px 髮絲線 + footerContent 上下各 6px 留白 +
+    /// AutoSize 按鈕完整高度 31px（實測：Segoe UI Symbol 12pt 字形高 21px + 按鈕
+    /// chrome）＝ 44。36 會把按鈕裁成上下半個（實測帶高只剩 23px）。
+    /// </summary>
+    internal const int FooterHeight = 44;
 
     /// <summary>彈窗狀態條高度（px）。</summary>
     internal const int StatusHeight = 26;
