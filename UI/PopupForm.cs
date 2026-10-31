@@ -469,6 +469,7 @@ public class PopupForm : Form
     {
         if (string.IsNullOrEmpty(text))
         {
+            StopToastTimer(); // 收起狀態條等同覆寫狀態：不留懸空的自動關閉計時
             HideStatusBar();
             return;
         }
@@ -480,6 +481,7 @@ public class PopupForm : Form
         }
         else
         {
+            StopToastTimer(); // 狀態被覆寫（朗讀中／初始化中）：先前的自動關閉倒數不得再關窗
             SetStatusBar(text, showDot: false, Theme.Ink, Theme.MutedBtn);
         }
     }
