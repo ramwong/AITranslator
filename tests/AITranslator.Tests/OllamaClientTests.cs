@@ -392,11 +392,17 @@ public class OllamaClientTests
         var settings = CreateSettings(template: "CustomTemplate {text}");
         await client.RecognizeSourceAndTranslateAsync(settings, "IMGDATA", CancellationToken.None);
 
-        var body = LastBodyOrThrow(handler);
-        Assert.Contains(OllamaClient.OcrCombinedPrefix, body);
-        Assert.Contains("CustomTemplate", body);
-        Assert.Contains("IMGDATA", body);
-        Assert.Contains(OllamaClient.OcrCombinedSeparator, body); // 分隔指示在提示詞中
+        // payload 以預設 JSON 編碼送出（CJK 會跳脫），先解析 body 再比對解碼後的 prompt。
+        using var doc = JsonDocument.Parse(LastBodyOrThrow(handler));
+        var prompt = doc.RootElement.GetProperty("prompt").GetString();
+        Assert.NotNull(prompt);
+        Assert.Contains(OllamaClient.OcrCombinedPrefix, prompt!);
+        Assert.Contains("CustomTemplate", prompt);
+        Assert.Contains(OllamaClient.OcrImagePlaceholderText, prompt); // 翻譯半段使用佔位文字套入使用者範本
+        Assert.Contains(OllamaClient.OcrCombinedSeparator, prompt); // 分隔指示在提示詞中
+
+        var image = doc.RootElement.GetProperty("images").EnumerateArray().First().GetString();
+        Assert.Equal("IMGDATA", image);
     }
 
     [Theory]

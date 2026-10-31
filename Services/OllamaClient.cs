@@ -1,4 +1,3 @@
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AITranslator.Models;
@@ -17,12 +16,6 @@ public sealed class OllamaClient
 {
     private static readonly Regex ModelNotFoundPattern =
         new("model.*not.*found", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
-
-    // 以寬鬆編碼送出 JSON：CJK 等非 ASCII 直接以 UTF-8 原文送出（僅必要字元跳脫），便於除錯與檢視請求內容。
-    private static readonly JsonSerializerOptions PayloadJsonOptions = new()
-    {
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
 
     private const string UnparseableResponseError = "Ollama 回應錯誤 (HTTP 200，內容無法解析)";
 
@@ -53,7 +46,7 @@ public sealed class OllamaClient
             model = settings.Model,
             prompt = PromptBuilder.Build(settings.PromptTemplate, text),
             stream = false,
-        }, PayloadJsonOptions);
+        });
 
         return await SendGenerateAsync(settings.OllamaUrl, payload, settings.Model, ct);
     }
@@ -67,7 +60,7 @@ public sealed class OllamaClient
             prompt,
             stream = false,
             images = new[] { imageBase64 },
-        }, PayloadJsonOptions);
+        });
 
         return SendGenerateAsync(settings.OllamaUrl, payload, settings.OcrModel, ct);
     }
