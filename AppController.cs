@@ -15,10 +15,8 @@ namespace AITranslator;
 /// 取得滑鼠位置（擷取前）→ <see cref="CaptureService.Capture"/>（同步，需 UI/STA 執行緒）→
 /// <see cref="CaptureOutcome.NoSelection"/> 顯示「未選取文字」、
 /// <see cref="CaptureOutcome.TooLong"/> 顯示長度上限提示（皆為 toast，2500ms 自動關閉）；
-/// <see cref="CaptureOutcome.Success"/> 先顯示「翻譯中…」（顯示原文的版面
-/// <see cref="AppSettings.PopupLayout"/> 非 TranslationOnly 時同步放入原文）再 await 翻譯，
-/// 完成後以 <see cref="PopupForm.SetText"/> 更新譯文或錯誤訊息（彈窗保留已顯示的原文，
-/// 不重送原文）。</para>
+/// <see cref="CaptureOutcome.Success"/> 先顯示「翻譯中…」再 await 翻譯，
+/// 完成後以 <see cref="PopupForm.SetText"/> 更新譯文或錯誤訊息。</para>
 ///
 /// <para><b>螢幕框選（OCR）流程</b>（熱鍵處理同樣在 UI 執行緒）：
 /// 取消進行中請求並遞增請求序號 → <see cref="RegionSelectorForm.SelectRegion"/>（modal
@@ -26,19 +24,14 @@ namespace AITranslator;
 /// 重入檢查（框選期間有其他熱鍵接管 → 本次取消即過期，不抓圖不發請求）→
 /// 以選取矩形中心為彈窗錨 → <see cref="ScreenCaptureService.CaptureToBase64"/>
 /// （同步，UI 執行緒；順序：overlay 已關「後」才抓，暗幕不會入鏡）→
-/// 顯示「辨識中…」（原文此刻尚不可得，原文區留空）後 await 流程（<see cref="OcrFlowAsync"/>）：
-/// <see cref="AppSettings.OcrTranslateInVision"/> 為 true 時單次呼叫——顯示原文的版面
-/// 走 <see cref="OllamaClient.RecognizeSourceAndTranslateAsync"/>（合併提示詞，單次請求同時
-/// 取得辨識文字與譯文，以 <see cref="OllamaClient.SplitCombinedOcrOutput"/> 拆出原文並隨結果
-/// 送上彈窗；分隔符缺席時原文為空＝自然降級）；版面③ 維持
-/// <see cref="OllamaClient.RecognizeAndTranslateAsync"/> 不變（僅取譯文，不多發請求）。
-/// 兩種版面皆無中間辨識文字可比對，故不套用長度上限預檢；否則兩次呼叫——
+/// 顯示「辨識中…」後 await 流程（<see cref="OcrFlowAsync"/>）：
+/// <see cref="AppSettings.OcrTranslateInVision"/> 為 true 時單次呼叫
+/// <see cref="OllamaClient.RecognizeAndTranslateAsync"/>（辨識+翻譯一次完成，
+/// 無中間辨識文字可比對，故不套用長度上限預檢）；否則兩次呼叫——
 /// <see cref="OllamaClient.RecognizeOcrTextAsync"/> → 過期丟棄 → 失敗比照翻譯錯誤路徑 →
 /// 空字串 toast「未辨識到文字」、超上限 toast（<see cref="AppSettings.MaxTextLength"/>）→
-/// 先把彈窗改為「翻譯中…」（顯示原文的版面同步放入辨識文字）再
-/// <see cref="OllamaClient.TranslateAsync"/>。完成後
-/// <see cref="CompleteOcrFlow"/>：成功以 <see cref="PopupForm.SetText"/> 送上譯文
-/// （合併路徑另以 <see cref="PopupForm.SetSource"/> 放入原文）、
+/// 先把彈窗改為「翻譯中…」再 <see cref="OllamaClient.TranslateAsync"/>。完成後
+/// <see cref="CompleteOcrFlow"/>：成功以 <see cref="PopupForm.SetText"/> 送上譯文、
 /// Error 為空（使用者取消）關彈窗、失敗送上錯誤文案，語義同翻譯流程。</para>
 ///
 /// <para><b>框選期間的熱鍵重入</b>：框選為 modal 訊息迴圈，期間任何一組熱鍵（含重按的
@@ -69,14 +62,6 @@ namespace AITranslator;
 /// <see cref="TtsService"/> 的引擎工廠於首次使用（背景載入 worker）時才
 /// <see cref="TtsAssetStore.EnsureExtracted"/> → <see cref="Native.PttsNative.RegisterResolver"/>，
 /// 解壓失敗轉 <see cref="TtsState.Failed"/> 帶回訊息。</para>
-///
-/// <para><b>彈窗按鈕</b>（<see cref="EnsurePopup"/> 建立實例時訂閱，實例重用不重複訂閱）：
-/// ⚙ 設定按鈕 → <see cref="OnPopupSettingsRequested"/>（關彈窗後開強制回設定視窗）；
-/// 🔊 朗讀按鈕 → <see cref="OnPopupTtsRequested"/>（共用 <see cref="TtsService"/> 狀態機，
-/// 文字為當前彈窗原文、不套長度上限、不用 toast——狀態顯示於
-/// <see cref="PopupForm.ShowTtsStatus"/> 狀態列；<c>_pendingTtsFromPopup</c> 標記來源，
-/// <see cref="OnTtsStateChangedUi"/> 據此把 Failed 顯示於狀態列、Ready 清掉狀態列，
-/// 熱鍵路徑則重置旗標維持既有 toast 行為）。</para>
 ///
 /// <para><b>TTS 狀態封送</b>：<see cref="TtsService.StateChanged"/> 於轉移發生執行緒
 /// 同步引發（可能為執行緒集區／播放 worker，也可能在 TtsService 鎖內），
@@ -137,29 +122,11 @@ public sealed class AppController : IDisposable
     private string? _pendingTtsText;
 
     /// <summary>
-    /// <c>_pendingTtsText</c> 的來源旗標：true = 由彈窗 🔊 按鈕觸發（失敗訊息改顯示於彈窗
-    /// 狀態列、Ready 開始出聲時清掉狀態列）；false = 熱鍵觸發（維持既有 toast 行為）。
-    /// 恆與 <c>_pendingTtsText</c> 同步覆寫／清空（熱鍵 NotLoaded/Failed 分支、
-    /// <see cref="OnTtsStateChangedUi"/> 的 Ready/Failed 消費點）。Exit()/Dispose() 無須清理：
-    /// 旗標只影響「下一次」Failed/Ready 轉移的呈現，且訂閱已先解除、不會再有封送。
-    /// </summary>
-    private bool _pendingTtsFromPopup;
-
-    /// <summary>
     /// UI 執行緒的 <see cref="SynchronizationContext"/>（Windows Forms；於熱鍵處理時擷取，
     /// 供 <see cref="OnTtsStateChanged"/> 在 worker 執行緒上封送回 UI）。null = 尚未擷取
     /// （未曾按過 TTS 熱鍵前不會有 Failed/Ready 轉移，無事可封送）。
     /// </summary>
     private SynchronizationContext? _uiContext;
-
-    /// <summary>
-    /// 目前的彈窗版面是否顯示原文（版面①②：Split/Stack）：true 時翻譯與 OCR 流程把原文
-    /// 一併送進彈窗（<see cref="PopupForm.ShowTranslation"/> 帶原文／合併 OCR 以
-    /// <see cref="OllamaClient.SplitCombinedOcrOutput"/> 拆出原文）；版面③
-    /// （<see cref="PopupLayout.TranslationOnly"/>）不送原文，單次呼叫 OCR 亦不走合併提示詞
-    /// （省 token：維持既有 <see cref="OllamaClient.RecognizeAndTranslateAsync"/>，不額外發請求）。
-    /// </summary>
-    private bool ShowSource => _settings.PopupLayout != PopupLayout.TranslationOnly;
 
     public AppController(AppSettings settings, string settingsPath)
     {
@@ -357,7 +324,6 @@ public sealed class AppController : IDisposable
                 // 播放。順序刻意為「存文字 → EnsureLoaded」，讓載入失敗（Failed 轉移）必然
                 // 發生在文字就緒之後，不遺失、不說過期文字。
                 _pendingTtsText = text;
-                _pendingTtsFromPopup = false; // 熱鍵來源：後續 Failed/Ready 仍走既有 toast 行為
                 _ttsService.EnsureLoaded();
                 EnsurePopup().ShowToast(mouse, TtsInitializingText);
                 return;
@@ -369,9 +335,9 @@ public sealed class AppController : IDisposable
                 // _lastError（重載成功情境本就要忘掉上次失敗），讀晚了只會殘留 null。
                 var lastError = _ttsService.LastError;
                 _pendingTtsText = text;
-                _pendingTtsFromPopup = false; // 熱鍵來源：後續 Failed/Ready 仍走既有 toast 行為
                 _ttsService.EnsureLoaded();
-                EnsurePopup().ShowToast(mouse, FormatTtsFailed(lastError));
+                EnsurePopup().ShowToast(mouse, string.Format(TtsFailedText,
+                    string.IsNullOrEmpty(lastError) ? TtsFailedUnknownReason : lastError));
                 return;
 
             case TtsState.Ready:
@@ -394,15 +360,10 @@ public sealed class AppController : IDisposable
     }
 
     /// <summary>
-    /// 封送回 UI 執行緒後的 TTS 狀態處理：<see cref="TtsState.Failed"/> 依來源分流——
-    /// 待播文字來自彈窗 🔊 按鈕（<c>_pendingTtsFromPopup</c>）且彈窗仍存在並可見時，錯誤以
-    /// 錯誤色顯示於彈窗按鈕區狀態列（不覆蓋內容、不自動關窗；忙碌中的彈窗亦然——狀態列可
-    /// 覆蓋忙碌彈窗，否則 toast 會蓋住內容並於 2500ms 後自動關窗，靜默丟掉進行中的翻譯）；
-    /// 否則維持既有行為——以「當下」
-    /// 游標位置 toast 失敗原因。兩種皆丟棄待播文字（絕不說出過期文字）並重置來源旗標；
+    /// 封送回 UI 執行緒後的 TTS 狀態處理：<see cref="TtsState.Failed"/> 立即以「當下」游標
+    /// 位置 toast 失敗原因並丟棄待播文字（絕不說出過期文字）；
     /// <see cref="TtsState.Ready"/>：若仍有首次按壓備妥的文字且服務仍在 Ready（未被他按壓推進），
-    /// 即刻 Toggle 播放；若該次播放由彈窗按鈕啟動，隨後清掉彈窗狀態列（Ready 後靜默，無提示）；
-    /// 其餘 Ready 轉移（自然播完、停止完成）與其他狀態皆靜默。
+    /// 即刻 Toggle 播放；其餘 Ready 轉移（自然播完、停止完成）與其他狀態皆靜默。
     /// </summary>
     private void OnTtsStateChangedUi(TtsState state)
     {
@@ -414,24 +375,13 @@ public sealed class AppController : IDisposable
         switch (state)
         {
             case TtsState.Failed:
-                var error = _ttsService.LastError;
-                var popup = _popup;
-                if (_pendingTtsFromPopup && popup is not null && !popup.IsDisposed
-                    && popup.Visible)
-                {
-                    // 彈窗來源：失敗原因顯示於彈窗按鈕區狀態列（不覆蓋內容、不自動關窗）；
-                    // 忙碌中（翻譯進行中）亦然——狀態列可覆蓋忙碌彈窗，切勿 toast／自動關窗。
-                    popup.ShowTtsStatus(FormatTtsFailed(error), isError: true);
-                }
-                else
-                {
-                    EnsurePopup().ShowToast(
-                        Cursor.Position, // 失敗通報以顯示當下（而非按壓時）的游標位置
-                        FormatTtsFailed(error)); // 既有行為
-                }
-
                 _pendingTtsText = null;
-                _pendingTtsFromPopup = false; // 來源已消費（無論走狀態列或 toast）
+                var error = _ttsService.LastError;
+                EnsurePopup().ShowToast(
+                    Cursor.Position, // 失敗通報以顯示當下（而非按壓時）的游標位置
+                    string.IsNullOrEmpty(error)
+                        ? string.Format(TtsFailedText, TtsFailedUnknownReason)
+                        : string.Format(TtsFailedText, error));
                 return;
 
             case TtsState.Ready:
@@ -443,28 +393,9 @@ public sealed class AppController : IDisposable
                     _ttsService.Toggle(pending);
                 }
 
-                if (_pendingTtsFromPopup) // 開始出聲：清掉狀態列（Ready 後靜默，無提示）
-                {
-                    var popup2 = _popup;
-                    if (popup2 is not null && !popup2.IsDisposed)
-                    {
-                        popup2.ShowTtsStatus(null);
-                    }
-
-                    _pendingTtsFromPopup = false;
-                }
-
                 return;
         }
     }
-
-    /// <summary>
-    /// 組出「TTS 失敗：{原因}」文案（熱鍵與彈窗路徑共用；原有的兩處 inline
-    /// <see cref="string.Format"/> 收斂於此）：失敗原因為空時落 <see cref="TtsFailedUnknownReason"/>。
-    /// </summary>
-    private static string FormatTtsFailed(string? lastError) =>
-        string.Format(TtsFailedText,
-            string.IsNullOrEmpty(lastError) ? TtsFailedUnknownReason : lastError);
 
     /// <summary>
     /// 翻譯熱鍵流程（UI 執行緒）：取消進行中的請求 → 同步擷取選取文字 →
@@ -505,8 +436,7 @@ public sealed class AppController : IDisposable
             return;
         }
 
-        // 顯示原文的版面（①②）在「翻譯中…」階段即放入原文；版面③ 傳 null（原文區不存在）
-        EnsurePopup().ShowTranslation(mouse, TranslatingText, ShowSource ? text : null);
+        EnsurePopup().ShowTranslation(mouse, TranslatingText);
         TranslateAndShowAsync(text, _requestId, NewCts().Token);
     }
 
@@ -535,15 +465,7 @@ public sealed class AppController : IDisposable
 
             if (result.Success)
             {
-                // 空譯文視為失敗訊息（錯誤色顯示「未取得翻譯內容」）
-                if (string.IsNullOrEmpty(result.Text))
-                {
-                    DeliverToPopup(EmptyTranslationText, isError: true);
-                }
-                else
-                {
-                    DeliverToPopup(result.Text); // 彈窗保留既有原文，不必重送
-                }
+                DeliverToPopup(string.IsNullOrEmpty(result.Text) ? EmptyTranslationText : result.Text);
             }
             else if (result.Error.Length == 0)
             {
@@ -552,7 +474,7 @@ public sealed class AppController : IDisposable
             }
             else
             {
-                DeliverToPopup(result.Error, isError: true);
+                DeliverToPopup(result.Error);
             }
         }
         catch (Exception ex)
@@ -629,11 +551,7 @@ public sealed class AppController : IDisposable
         OcrFlowAsync(anchor, image, requestId, NewCts().Token);
     }
 
-    /// <summary>
-    /// 框選後的 OCR 流程：單次呼叫模式（辨識+翻譯一次完成；顯示原文的版面走合併提示詞
-    /// <see cref="OllamaClient.RecognizeSourceAndTranslateAsync"/>，原文隨結果送達）或
-    /// 兩次呼叫模式（辨識 → 預檢 → 翻譯；辨識文字先送進原文區）。
-    /// </summary>
+    /// <summary>框選後的 OCR 流程：單次呼叫模式（辨識+翻譯一次完成）或兩次呼叫模式（辨識 → 預檢 → 翻譯）。</summary>
     private async void OcrFlowAsync(Point anchor, string imageBase64, int requestId, CancellationToken ct)
     {
         try
@@ -641,25 +559,12 @@ public sealed class AppController : IDisposable
             if (_settings.OcrTranslateInVision)
             {
                 // 單次呼叫：辨識+翻譯一次完成（不套用辨識文字上限——無中間結果可比對）
-                if (ShowSource)
-                {
-                    // 顯示原文的版面（①②）：合併提示詞單次取回原文＋譯文（不額外發辨識請求）；
-                    // 分隔符缺席時原文為空＝自然降級（整段當譯文）。
-                    var combined = await _ollamaClient.RecognizeSourceAndTranslateAsync(_settings, imageBase64, ct);
-                    var (source, translation) = OllamaClient.SplitCombinedOcrOutput(combined.Text);
-                    CompleteOcrFlow(new TranslateResult(combined.Success, translation, combined.Error), requestId, source);
-                }
-                else
-                {
-                    // 版面③（不顯示原文）：維持既有提示詞，不多發請求。
-                    var direct = await _ollamaClient.RecognizeAndTranslateAsync(_settings, imageBase64, ct);
-                    CompleteOcrFlow(direct, requestId);
-                }
-
+                var direct = await _ollamaClient.RecognizeAndTranslateAsync(_settings, imageBase64, ct);
+                CompleteOcrFlow(direct, requestId);
                 return;
             }
 
-            // 兩次呼叫：先辨識（版面③亦需辨識文字作翻譯輸入，只是不送進彈窗）
+            // 兩次呼叫：先辨識
             var ocr = await _ollamaClient.RecognizeOcrTextAsync(_settings, imageBase64, ct);
             if (requestId != _requestId)
             {
@@ -685,10 +590,9 @@ public sealed class AppController : IDisposable
                 return;
             }
 
-            // 改為「翻譯中…」；顯示原文的版面（①②）同步放入辨識文字，版面③ 傳 null
-            EnsurePopup().ShowTranslation(anchor, TranslatingText, ShowSource ? ocr.Text : null);
+            EnsurePopup().ShowTranslation(anchor, TranslatingText);
             var translated = await _ollamaClient.TranslateAsync(_settings, ocr.Text, ct);
-            CompleteOcrFlow(translated, requestId); // 彈窗已於上一行帶過原文，不必重送
+            CompleteOcrFlow(translated, requestId);
         }
         catch (Exception ex)
         {
@@ -696,12 +600,8 @@ public sealed class AppController : IDisposable
         }
     }
 
-    /// <summary>
-    /// 把結果送上彈窗：過期丟棄、成功/取消/錯誤三分，語義同 TranslateAndShowAsync。
-    /// <paramref name="source"/> 僅合併 OCR 路徑傳入（原文隨譯文一次送達）；兩次呼叫路徑的
-    /// 原文已於改「翻譯中…」時放入彈窗，此處不重送。
-    /// </summary>
-    private void CompleteOcrFlow(TranslateResult result, int requestId, string? source = null)
+    /// <summary>把結果送上彈窗：過期丟棄、成功/取消/錯誤三分，語義同 TranslateAndShowAsync。</summary>
+    private void CompleteOcrFlow(TranslateResult result, int requestId)
     {
         if (requestId != _requestId)
         {
@@ -710,15 +610,7 @@ public sealed class AppController : IDisposable
 
         if (result.Success)
         {
-            // 空譯文視為失敗訊息（錯誤色顯示「未取得翻譯內容」）
-            if (string.IsNullOrEmpty(result.Text))
-            {
-                DeliverToPopup(EmptyTranslationText, isError: true, source);
-            }
-            else
-            {
-                DeliverToPopup(result.Text, source: source);
-            }
+            DeliverToPopup(string.IsNullOrEmpty(result.Text) ? EmptyTranslationText : result.Text);
         }
         else if (result.Error.Length == 0)
         {
@@ -726,113 +618,30 @@ public sealed class AppController : IDisposable
         }
         else
         {
-            DeliverToPopup(result.Error, isError: true);
+            DeliverToPopup(result.Error);
         }
     }
 
-    /// <summary>
-    /// 把譯文/錯誤訊息送到現存彈窗；彈窗已被使用者關閉則丟棄訊息。不重新定位彈窗。
-    /// <paramref name="source"/> 非 null（僅合併 OCR 路徑傳入）時先
-    /// <see cref="PopupForm.SetSource"/> 放入原文再 <see cref="PopupForm.SetText"/>；
-    /// 版面③ 的原文區不存在，SetSource 為無動作。譯文為空或 <paramref name="isError"/>
-    /// 為 true 時以錯誤色顯示。
-    /// </summary>
-    private void DeliverToPopup(string message, bool isError = false, string? source = null)
+    /// <summary>把譯文/錯誤訊息送到現存彈窗；彈窗已被使用者關閉則丟棄訊息。</summary>
+    private void DeliverToPopup(string message)
     {
         if (_popup == null || _popup.IsDisposed)
         {
             return;
         }
 
-        if (source != null)
-        {
-            _popup.SetSource(source);
-        }
-
-        _popup.SetText(message, isError);
+        _popup.SetText(message);
     }
 
-    /// <summary>
-    /// 取得可用的彈窗實例；舊實例已關閉（Disposed）則以目前設定重建。
-    /// 訂閱（⚙ 設定 / 🔊 朗讀按鈕）僅於建立新實例時掛一次——實例單次建立後重用，
-    /// 不會重複訂閱。
-    /// </summary>
+    /// <summary>取得可用的彈窗實例；舊實例已關閉（Disposed）則以目前設定重建。</summary>
     private PopupForm EnsurePopup()
     {
         if (_popup == null || _popup.IsDisposed)
         {
             _popup = new PopupForm(_settings);
-            _popup.SettingsRequested += OnPopupSettingsRequested;
-            _popup.TtsRequested += OnPopupTtsRequested;
         }
 
         return _popup;
-    }
-
-    /// <summary>
-    /// 彈窗 ⚙ 設定按鈕（UI 執行緒）：關閉彈窗後以現行設定開強制回設定視窗
-    /// （存檔後 <see cref="OnSettingsChanged"/> 會再關舊彈窗；此處先 <see cref="DiscardPopup"/>
-    /// 讓彈窗不必在設定視窗底下殘留）。
-    /// </summary>
-    private void OnPopupSettingsRequested()
-    {
-        DiscardPopup();
-        ShowSettings();
-    }
-
-    /// <summary>
-    /// 彈窗 🔊 朗讀按鈕（UI 執行緒）：與熱鍵共用 <see cref="TtsService"/> 狀態機，但
-    /// 供應文字為<b>當前彈窗原文</b>（<see cref="PopupForm.TtsRequested"/> 帶入，可為空字串）、
-    /// <b>不套 <see cref="AppSettings.MaxTextLength"/> 預檢、不用 toast</b>——狀態一律顯示於
-    /// 彈窗按鈕區狀態列（不覆蓋內容、不自動關窗），以 <c>_pendingTtsFromPopup</c> 標記來源。
-    /// <list type="bullet">
-    /// <item><see cref="TtsState.Loading"/>／Stopping：狀態列「TTS 初始化中…」，不重複觸發。</item>
-    /// <item><see cref="TtsState.NotLoaded"/>：備妥文字後 <see cref="TtsService.EnsureLoaded"/>
-    ///  （順序同熱鍵：先存文字再載入，失敗不遺失）、狀態列「TTS 初始化中…」。</item>
-    /// <item><see cref="TtsState.Failed"/>：先讀 <see cref="TtsService.LastError"/>（EnsureLoaded
-    ///  會清掉它）→ 狀態列錯誤色顯示失敗原因 → 重試載入並備妥新文字。</item>
-    /// <item><see cref="TtsState.Ready"/>／Speaking：<see cref="TtsService.Toggle"/>
-    ///  （出聲／停止皆靜默；Ready 轉移時由 <see cref="OnTtsStateChangedUi"/> 清掉狀態列）。</item>
-    /// </list>
-    /// 此處於 UI 執行緒的 <see cref="Control.Click"/> 事件中執行，存取 <c>_popup</c> 安全。
-    /// </summary>
-    private void OnPopupTtsRequested(string sourceText)
-    {
-        // 按鈕路徑不套 MaxTextLength（spec）；不使用 toast——狀態一律顯示於彈窗按鈕區狀態列（不覆蓋內容、不自動關窗）
-        if (_popup is null || _popup.IsDisposed)
-        {
-            return;
-        }
-
-        var popup = _popup!;
-        switch (_ttsService.State)
-        {
-            case TtsState.Loading:
-            case TtsState.Stopping:
-                popup.ShowTtsStatus(TtsInitializingText);
-                return;
-
-            case TtsState.NotLoaded:
-                _pendingTtsText = sourceText;
-                _pendingTtsFromPopup = true;
-                _ttsService.EnsureLoaded();
-                popup.ShowTtsStatus(TtsInitializingText);
-                return;
-
-            case TtsState.Failed:
-                // 失敗原因需在 EnsureLoaded「前」讀取（EnsureLoadedLocked 會清掉 _lastError）
-                var lastError = _ttsService.LastError;
-                _pendingTtsText = sourceText;
-                _pendingTtsFromPopup = true;
-                _ttsService.EnsureLoaded();
-                popup.ShowTtsStatus(FormatTtsFailed(lastError), isError: true);
-                return;
-
-            case TtsState.Ready:
-            case TtsState.Speaking:
-                _ttsService.Toggle(sourceText);
-                return;
-        }
     }
 
     /// <summary>關閉並捨棄現存彈窗（Close 即 Dispose，讓下次以新設定重建）。</summary>

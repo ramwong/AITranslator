@@ -25,13 +25,6 @@ public sealed class OllamaClient
     /// <summary>單次呼叫模式（辨識即翻譯）套入提示詞模板時使用的佔位文字。</summary>
     public const string OcrImagePlaceholderText = "這張圖片中的文字";
 
-    /// <summary>合併模式提示詞前綴：要求模型輸出原樣辨識文字與譯文兩段，並以單獨一行 <see cref="OcrCombinedSeparator"/> 分隔。</summary>
-    public const string OcrCombinedPrefix =
-        "請分兩段輸出：第一段原樣輸出圖片中的所有文字（保留原始段落與分行，不要翻譯、不要解釋、不要加註）；第二段為翻譯。兩段之間以單獨一行輸出三個等號（===）分隔。";
-
-    /// <summary>合併模式兩段輸出之間的分隔行內容。</summary>
-    public const string OcrCombinedSeparator = "===";
-
     private readonly HttpClient _http;
 
     public OllamaClient(HttpClient http)
@@ -72,54 +65,6 @@ public sealed class OllamaClient
     /// <summary>單次呼叫模式：把 <see cref="OcrImagePlaceholderText"/> 套入翻譯模板，辨識後由同一模型直接輸出譯文。</summary>
     public Task<TranslateResult> RecognizeAndTranslateAsync(AppSettings settings, string imageBase64, CancellationToken ct)
         => RecognizeAsync(settings, imageBase64, PromptBuilder.Build(settings.PromptTemplate, OcrImagePlaceholderText), ct);
-
-    /// <summary>
-    /// 合併模式：單次呼叫同時取得原樣辨識文字與譯文。提示詞為 <see cref="OcrCombinedPrefix"/> 加上
-    /// 套入模板後的指示（第一段辨識由前綴負責，模板的 <see cref="OcrImagePlaceholderText"/> 對應翻譯半段），
-    /// 輸出以 <see cref="SplitCombinedOcrOutput"/> 解析。
-    /// </summary>
-    public Task<TranslateResult> RecognizeSourceAndTranslateAsync(AppSettings settings, string imageBase64, CancellationToken ct)
-        => RecognizeAsync(
-            settings,
-            imageBase64,
-            OcrCombinedPrefix + "\n\n" + PromptBuilder.Build(settings.PromptTemplate, OcrImagePlaceholderText),
-            ct);
-
-    /// <summary>
-    /// 解析合併模式輸出：找到第一個 Trim 後等於 <see cref="OcrCombinedSeparator"/> 的行，
-    /// Source 為其前所有行去掉一個行尾換行、Translation 為其後所有行去掉一個行首換行；
-    /// 找不到分隔行則降級為（<see cref="string.Empty"/>，原始輸出）——整段當譯文。
-    /// </summary>
-    public static (string Source, string Translation) SplitCombinedOcrOutput(string output)
-    {
-        var searchStart = 0;
-        while (searchStart <= output.Length)
-        {
-            var lineEnd = output.IndexOf('\n', searchStart);
-            var line = lineEnd < 0 ? output[searchStart..] : output[searchStart..lineEnd];
-
-            if (line.Trim().Equals(OcrCombinedSeparator, StringComparison.Ordinal))
-            {
-                // Source：分隔行之前的所有行（去掉緊接在前的一個行尾換行）；
-                // CRLF 輸入時該換行為 "\r\n"，切掉的 "\n" 後再 TrimEnd 掉殘餘的 "\r"。
-                var source = searchStart == 0
-                    ? string.Empty
-                    : output[..(searchStart - 1)].TrimEnd('\r', '\n');
-                // Translation：分隔行之後的所有行（去掉一個行首換行）。
-                var translation = lineEnd < 0 ? string.Empty : output[(lineEnd + 1)..];
-                return (source, translation);
-            }
-
-            if (lineEnd < 0)
-            {
-                break;
-            }
-
-            searchStart = lineEnd + 1;
-        }
-
-        return (string.Empty, output);
-    }
 
     private async Task<TranslateResult> SendGenerateAsync(string ollamaUrl, string payload, string model, CancellationToken ct)
     {

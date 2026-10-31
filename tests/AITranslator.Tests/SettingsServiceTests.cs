@@ -39,7 +39,6 @@ public class SettingsServiceTests : IDisposable
         Assert.Equal("Ctrl+Alt+E", s.Hotkey);
         Assert.Equal(5000, s.MaxTextLength);
         Assert.False(s.StartWithWindows);
-        Assert.Equal(PopupLayout.Split, s.PopupLayout);
     }
 
     [Fact]
@@ -56,7 +55,6 @@ public class SettingsServiceTests : IDisposable
             Hotkey = "Shift+F5",
             MaxTextLength = 1000,
             StartWithWindows = true,
-            PopupLayout = PopupLayout.Stack,
         };
 
         SettingsService.Save(_settingsPath, original);
@@ -71,7 +69,6 @@ public class SettingsServiceTests : IDisposable
         Assert.Equal(original.Hotkey, loaded.Hotkey);
         Assert.Equal(original.MaxTextLength, loaded.MaxTextLength);
         Assert.Equal(original.StartWithWindows, loaded.StartWithWindows);
-        Assert.Equal(PopupLayout.Stack, loaded.PopupLayout);
     }
 
     [Fact]
@@ -93,17 +90,6 @@ public class SettingsServiceTests : IDisposable
         var loaded = SettingsService.Load(_settingsPath);
 
         Assert.Equal("Ctrl+Shift+T", loaded.TtsHotkey);
-    }
-
-    [Fact]
-    public void RoundTrip_PopupLayoutDefaultsToSplit_WhenFileLacksField()
-    {
-        // 存一份 PopupLayout=Split 的設定後，於 JSON 中移除 "PopupLayout" 欄位字樣，Load 仍為 Split
-        var original = new AppSettings { PopupLayout = PopupLayout.Split };
-        SettingsService.Save(_settingsPath, original);
-        var json = File.ReadAllText(_settingsPath).Replace("\"PopupLayout\"", "\"Removed\"");
-        File.WriteAllText(_settingsPath, json);
-        Assert.Equal(PopupLayout.Split, SettingsService.Load(_settingsPath).PopupLayout);
     }
 
     [Fact]

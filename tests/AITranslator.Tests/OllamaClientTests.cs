@@ -382,39 +382,4 @@ public class OllamaClientTests
         Assert.False(string.IsNullOrEmpty(result.Error));
         Assert.Equal("Ollama 回應逾時，請確認模型已載入後再試", result.Error);
     }
-
-    // ---------- OCR 合併輸出（辨識＋翻譯單次呼叫） ----------
-
-    [Fact]
-    public async Task RecognizeSourceAndTranslate_PromptContainsPrefixAndTemplate()
-    {
-        var (client, handler) = CreateClient();
-        var settings = CreateSettings(template: "CustomTemplate {text}");
-        await client.RecognizeSourceAndTranslateAsync(settings, "IMGDATA", CancellationToken.None);
-
-        // payload 以預設 JSON 編碼送出（CJK 會跳脫），先解析 body 再比對解碼後的 prompt。
-        using var doc = JsonDocument.Parse(LastBodyOrThrow(handler));
-        var prompt = doc.RootElement.GetProperty("prompt").GetString();
-        Assert.NotNull(prompt);
-        Assert.Contains(OllamaClient.OcrCombinedPrefix, prompt!);
-        Assert.Contains("CustomTemplate", prompt);
-        Assert.Contains(OllamaClient.OcrImagePlaceholderText, prompt); // 翻譯半段使用佔位文字套入使用者範本
-        Assert.Contains(OllamaClient.OcrCombinedSeparator, prompt); // 分隔指示在提示詞中
-
-        var image = doc.RootElement.GetProperty("images").EnumerateArray().First().GetString();
-        Assert.Equal("IMGDATA", image);
-    }
-
-    [Theory]
-    [InlineData("原文A\n===\n譯文B", "原文A", "譯文B")]
-    [InlineData("沒分隔的整段", "", "沒分隔的整段")]
-    [InlineData("第一\n===\n中\n===\n二", "第一", "中\n===\n二")] // 首個分隔行生效
-    [InlineData("原文\n  ===  \n譯文", "原文", "譯文")]           // 分隔行允許兩側縮排
-    [InlineData("a\r\n===\nb", "a", "b")]                        // CRLF：Source 不留殘餘 \r
-    public void SplitCombinedOcrOutput_ParsesAndFallsBack(string output, string source, string translation)
-    {
-        var (src, tr) = OllamaClient.SplitCombinedOcrOutput(output);
-        Assert.Equal(source, src);
-        Assert.Equal(translation, tr);
-    }
 }

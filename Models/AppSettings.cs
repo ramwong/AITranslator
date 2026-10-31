@@ -30,9 +30,6 @@ public class AppSettings
     /// <summary>OCR 直接以螢幕上可見的原文辨識並翻譯：啟用（<see langword="true"/>）時由辨識模型單次呼叫直接輸出譯文；停用（<see langword="false"/>）時為兩次呼叫——辨識模型只輸出辨識文字，翻譯交由現有翻譯模型（<see cref="Model"/>）。</summary>
     public bool OcrTranslateInVision { get; set; }
 
-    /// <summary>彈窗呈現版面：顯示原文的版面（Split/Stack）會讓 OCR 與剪貼簿流程把原文一併送進彈窗。</summary>
-    public PopupLayout PopupLayout { get; set; } = PopupLayout.Split;
-
     public int MaxTextLength { get; set; } = 5000;
 
     public bool StartWithWindows { get; set; }
