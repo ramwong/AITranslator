@@ -10,6 +10,8 @@
 - 點視窗外其他地方、或按 `Esc` 即關閉；視窗內有「複製」按鈕可複製譯文
 - 使用 **Ollama 本地模型**，不送資料上雲端
 - 擷取選字前會先備份你的剪貼簿、事後還原（含圖片、檔案等非文字內容）
+- 選取文字按 `Ctrl+Alt+S`（可在設定改）即以本地 [Phonon 31M](https://huggingface.co/gradium/phonon-31m-en)
+  模型**朗讀原文**（幀級串流，邊合成邊播）；再按一次即停，同樣全程離線
 
 ## 下載
 
@@ -24,6 +26,8 @@ master build 的 artifact（名字叫 `AITranslator-win-x64`）。
 - Windows 10 / 11（x64）
 - [Ollama](https://ollama.com/download) 已安裝並執行中（`ollama serve` 或桌面版）
 - 已拉一個翻譯模型，例如：`ollama pull <model-name>`
+- TTS 朗讀**全程離線、無額外相依**：語音引擎與模型檔已內嵌於 exe（Rust 工具鏈僅
+  建置時需要，使用者端不用安裝）
 
 ## 快速開始
 
@@ -33,6 +37,8 @@ master build 的 artifact（名字叫 `AITranslator-win-x64`）。
    找，例如 `qwen2.5:7b`；預設值 `beam:cloud` 僅為範例，多半要改成你有的模型）
 4. Ollama 位址維持 `http://localhost:11434`（本機預設埠）即可
 5. 在任何程式選取文字 → 按 `Ctrl+Alt+E` → 等待翻譯彈窗
+6. （選用）想聽原文：選取文字 → 按 `Ctrl+Alt+S` 朗讀；再按一次即停。
+   第一次按需先載入語音模型，會顯示「TTS 初始化中…」，載好就自動開始唸
 
 ## 設定說明
 
@@ -44,6 +50,7 @@ master build 的 artifact（名字叫 `AITranslator-win-x64`）。
 | Ollama 模型名稱 | `beam:cloud` | 必須與 `ollama list` 顯示的名稱一致 |
 | Ollama API 網址 | `http://localhost:11434` | 遠端跑 Ollama 時改成對方網址 |
 | 快捷鍵 | `Ctrl+Alt+E` | 格式 `修飾鍵+按鍵`，如 `Ctrl+Shift+T`、`Alt+F3` |
+| TTS 快捷鍵 | `Ctrl+Alt+S` | 朗讀選取文字的快捷鍵，格式同「快捷鍵」；不可與翻譯快捷鍵相同（存檔時驗證擋下） |
 | 選取文字上限字數 | 5000 | 超過上限會提示而不翻譯 |
 | 開機自動啟動 | 關 | 寫入登錄 Run key |
 
@@ -65,6 +72,19 @@ Ollama 沒在跑，或網址/埠不對。終端機執行 `ollama serve` 或啟�
 **按住快捷鍵不動會連續觸發？**
 放開再按；重按會取消上一次還在進行的翻譯。
 
+**TTS 朗讀是怎麼運作的？需要連網嗎？**
+選取文字按 TTS 快捷鍵（預設 `Ctrl+Alt+S`）即朗讀原文，再按一次即停。全程**離線**：
+語音引擎 `ptts_ffi.dll` 與 Phonon 31M 模型檔都內嵌在 exe 裡，不送任何資料上雲端。
+注意 TTS 只唸**英文**原文（模型為英文語音），且朗讀的是你選取的文字，與翻譯結果無關。
+
+**第一次按 TTS 快捷鍵沒聲音？**
+首次使用需先載入語音模型，當時游標旁會顯示「TTS 初始化中…」，載好後自動開始唸；
+之後同一個執行階段不需要再等。若尚未選取文字，會顯示「未選取文字」而不出聲。
+
+**顯示「TTS 失敗：…」？**
+朗讀引擎載入或合成失敗。可再按一次 TTS 快捷鍵重試；若持續失敗，訊息中會附上原因。
+音訊走 Windows 的 waveOut 裝置，也請確認系統音量與輸出裝置正常。
+
 ## 從原始碼建置
 
 需要 .NET 8 SDK（或更新）：
@@ -73,6 +93,13 @@ Ollama 沒在跑，或網址/埠不對。終端機執行 `ollama serve` 或啟�
 dotnet build
 dotnet test          # 單元測試
 dotnet publish AITranslator.csproj -c Release -r win-x64 -o publish
+```
+
+TTS 資產（`ptts_ffi.dll` 與模型檔）以 gitignored 的 `assets/tts/` 為來源，缺了它一樣能
+build，只是沒有朗讀功能；要完整建置請先跑 PowerShell 7 + Rust 工具鏈：
+
+```powershell
+./scripts/fetch-assets.ps1
 ```
 
 push 到 GitHub 後，`.github/workflows/build.yml` 會自動 build 並上傳 exe artifact；
@@ -84,6 +111,17 @@ push 到 GitHub 後，`.github/workflows/build.yml` 會自動 build 並上傳 ex
 - **預設值（彈窗大小、快捷鍵等）**：`Models/AppSettings.cs`
 - **翻譯錯誤提示文案**：`Services/OllamaClient.cs` 的錯誤映射
 
+## TTS 版本鎖定
+
+朗讀功能的引擎與模型皆以鎖定版本建置、內嵌於 exe：
+
+- 語音引擎：[xn-ptts](https://github.com/gradium-ai/xn-ptts) tag `v0.6.0` 建出的 `ptts_ffi.dll`
+- 語音模型：[Phonon 31M（英文）](https://huggingface.co/gradium/phonon-31m-en)，
+  pinned commit `92741c5b07d085ff840e26fea8ce43110b87852f`
+- 內部快取 stamp：`0.6.0+92741c5b07d085ff840e26fea8ce43110b87852f`
+
 ## License
 
-[The Unlicense](https://unlicense.org)（公有領域貢獻）— 免署名、免標來源，任意使用、修改、散佈、商業用途皆可。
+AITranslator 本身以 [The Unlicense](https://unlicense.org)（公有領域貢獻）提供 — 免署名、
+免標來源，任意使用、修改、散佈、商業用途皆可。第三方元件（TTS 引擎與語音模型）的
+來源與授權請見 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
