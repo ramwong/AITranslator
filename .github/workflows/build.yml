@@ -29,15 +29,24 @@ jobs:
       - name: Publish
         run: dotnet publish AITranslator.csproj -c Release -r win-x64 -o publish
 
+      # 一併出貨第三方授權聲明（Apache-2.0 §4(c)：再散布須附 license notice）
+      - name: Copy third-party notices
+        run: cp THIRD-PARTY-NOTICES.md publish/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: AITranslator-win-x64
           # .NET 8 single-file output embeds the native libraries; the exe alone runs.
-          path: publish/AITranslator.exe
+          # THIRD-PARTY-NOTICES.md 隨 exe 一同散布（授權聲明勿內嵌）。
+          path: |
+            publish/AITranslator.exe
+            publish/THIRD-PARTY-NOTICES.md
 
       - name: Release (tag builds only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: publish/AITranslator.exe
+          files: |
+            publish/AITranslator.exe
+            publish/THIRD-PARTY-NOTICES.md

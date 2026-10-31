@@ -232,10 +232,17 @@ public class TtsService : IDisposable
                 return;
             }
 
+            // 換新引擎前先釋放舊的：Failed → 重載的循環（播放失敗或 sink 工廠失敗後再按一次）
+            // 會走到這裡替換 _engine，舊引擎的 native ptts_new handle（含模型記憶體）若不
+            // Dispose 即流失（每次重試一個，約數十 MB）。Dispose 由狀態機序列化，此處
+            // 呼叫不會與 worker 的引擎呼叫交錯；IPttsEngine.Dispose 拋例外視為實作錯誤，
+            // 不另加防護。
+            var previous = _engine;
             _engine = engine;
             _lastError = error;
             _state = error is null ? TtsState.Ready : TtsState.Failed;
             RaiseChangedLocked();
+            previous?.Dispose();
         }
     }
 

@@ -272,10 +272,13 @@ public sealed class AppController : IDisposable
             case TtsState.Failed:
                 // brief 的 Failed 分支：toast 上次失敗原因；此後重試載入並備妥新文字
                 // （任務指示：Failed 態按壓同樣 EnsureLoaded，文字才不會在重試完成時遺失）
+                // 失敗原因需在 EnsureLoaded「前」讀取：EnsureLoadedLocked 會先清掉
+                // _lastError（重載成功情境本就要忘掉上次失敗），讀晚了只會殘留 null。
+                var lastError = _ttsService.LastError;
                 _pendingTtsText = text;
                 _ttsService.EnsureLoaded();
                 EnsurePopup().ShowToast(mouse, string.Format(TtsFailedText,
-                    string.IsNullOrEmpty(_ttsService.LastError) ? TtsFailedUnknownReason : _ttsService.LastError));
+                    string.IsNullOrEmpty(lastError) ? TtsFailedUnknownReason : lastError));
                 return;
 
             case TtsState.Ready:

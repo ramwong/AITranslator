@@ -28,6 +28,8 @@ public class TtsServiceTests
         /// <summary>非 null 時與 FrameGate 一起 WaitAny；由 FakeSink.Stop 的鉤子觸發（鏡射 sink.Stop 解除回呼阻塞）。</summary>
         public EventWaitHandle? Interrupt;
         public string? LoadError;
+        /// <summary>非 null 時 Speak 回 false、LastError 帶回此訊息（null = 生成永不失敗，維持原行為）。</summary>
+        public string? SpeakError;
         public int LoadCalls;
         public int SpeakCalls;
         public bool Disposed;
@@ -43,6 +45,13 @@ public class TtsServiceTests
         public bool Speak(string text, Func<float[], bool> onAudio, out TtsSpeakResult result)
         {
             SpeakCalls++;
+            if (SpeakError is not null)
+            {
+                // 模擬 ptts_speak 回 false 的失敗：不跑生成迴圈，LastError 帶回注入的訊息
+                result = default;
+                return false;
+            }
+
             for (int i = 0; i < FrameCount; i++)
             {
                 if (i > 0)
@@ -76,7 +85,7 @@ public class TtsServiceTests
             return true; // 假引擎「生成」永不失敗：提前停止不視為錯誤
         }
 
-        public string? LastError => null;
+        public string? LastError => SpeakError;
 
         public void Dispose() => Disposed = true;
     }
@@ -259,6 +268,26 @@ public class TtsServiceTests
         Assert.Equal(new[] { TtsState.Loading, TtsState.Failed }, h.States);
         Assert.Equal("模擬：模型載入失敗", h.Service.LastError);
         Assert.Equal(1, h.Engine.LoadCalls); // 失敗不自動重試（重試僅由 Toggle/EnsureLoaded 明確觸發）
+    }
+
+    [Fact]
+    public void SpeakFailure_GoesFailed_KeepsLastError() // ptts_speak 回 false → State=Failed + 保留 last_error
+    {
+        using var h = new Harness();
+        var ready = h.ExpectState(TtsState.Ready);
+        h.Service.EnsureLoaded();
+        Wait(ready, "載入完成（Ready）");
+
+        const string speakError = "模擬：引擎生成失敗";
+        h.Engine.SpeakError = speakError;
+        var failed = h.ExpectState(TtsState.Failed);
+        h.Service.Toggle("觸發播放失敗");
+        Wait(failed, "播放失敗轉入 Failed");
+
+        Assert.Equal(1, h.Engine.SpeakCalls);
+        Assert.Equal(speakError, h.Service.LastError);   // 引擎的 LastError 帶回給呼叫端
+        Assert.Equal(TtsState.Failed, h.Service.State);
+        Assert.Equal(TtsState.Failed, h.States.Last());  // 事件序列以 Failed 收尾
     }
 
     [Fact]
