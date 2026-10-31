@@ -39,6 +39,9 @@ public class SettingsForm : Form
     private readonly TextBox _urlBox;
     private readonly TextBox _hotkeyBox;
     private readonly TextBox _ttsHotkeyBox;
+    private readonly TextBox _ocrModelBox;
+    private readonly TextBox _ocrHotkeyBox;
+    private readonly CheckBox _ocrTranslateInVisionBox;
     private readonly TextBox _maxTextLengthBox;
     private readonly CheckBox _startWithWindowsBox;
 
@@ -58,6 +61,8 @@ public class SettingsForm : Form
         _urlBox = CreateTextBox();
         _hotkeyBox = CreateTextBox();
         _ttsHotkeyBox = CreateTextBox();
+        _ocrModelBox = CreateTextBox();
+        _ocrHotkeyBox = CreateTextBox();
         _maxTextLengthBox = CreateTextBox();
 
         _templateBox = CreateTextBox();
@@ -73,6 +78,12 @@ public class SettingsForm : Form
         // 登錄 Run 值才是「開機是否啟動」的事實來源（使用者可能手動刪值），
         // 勾選狀態以現況為準；存檔時 SetEnabled 會把設定與登錄同步回一致。
         _startWithWindowsBox.Checked = AutoStartService.IsEnabled();
+
+        _ocrTranslateInVisionBox = new CheckBox
+        {
+            AutoSize = true,
+            Text = "辨識模型直接翻譯",
+        };
 
         PopulateFields();
         BuildLayout();
@@ -141,6 +152,29 @@ public class SettingsForm : Form
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(_ocrModelBox.Text))
+        {
+            ShowValidationError(_ocrModelBox, "OCR 模型名稱不可為空白。");
+            return;
+        }
+
+        // OCR 快捷鍵沿用主快捷鍵的格式規則與訊息文案。
+        var ocrHotkey = _ocrHotkeyBox.Text.Trim();
+        if (!HotkeyParser.Parse(ocrHotkey).success)
+        {
+            ShowValidationError(_ocrHotkeyBox,
+                "快捷鍵格式不正確。需含 Ctrl、Alt 或 Shift 與單一英文字母（或 F1–F12），例如 Ctrl+Alt+E。");
+            return;
+        }
+
+        // OCR 快捷鍵不可與翻譯、TTS 快捷鍵相同（Trim 後不分大小寫比較）。
+        if (string.Equals(ocrHotkey, hotkey, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ocrHotkey, ttsHotkey, StringComparison.OrdinalIgnoreCase))
+        {
+            ShowValidationError(_ocrHotkeyBox, "OCR 快捷鍵不可與其他快捷鍵相同。");
+            return;
+        }
+
         // 全部通過才改寫設定實例。
         _settings.PopupWidth = popupWidth;
         _settings.PopupHeight = popupHeight;
@@ -151,6 +185,9 @@ public class SettingsForm : Form
         _settings.PromptTemplate = _templateBox.Text.Trim();
         _settings.Hotkey = hotkey;
         _settings.TtsHotkey = ttsHotkey;
+        _settings.OcrModel = _ocrModelBox.Text.Trim();
+        _settings.OcrHotkey = ocrHotkey;
+        _settings.OcrTranslateInVision = _ocrTranslateInVisionBox.Checked;
         _settings.StartWithWindows = _startWithWindowsBox.Checked;
 
         try
@@ -232,6 +269,9 @@ public class SettingsForm : Form
         _urlBox.Text = _settings.OllamaUrl;
         _hotkeyBox.Text = _settings.Hotkey;           // 顯示如「Ctrl+Alt+E」
         _ttsHotkeyBox.Text = _settings.TtsHotkey;     // 顯示如「Ctrl+Alt+S」
+        _ocrModelBox.Text = _settings.OcrModel;
+        _ocrHotkeyBox.Text = _settings.OcrHotkey;     // 顯示如「Ctrl+Alt+I」
+        _ocrTranslateInVisionBox.Checked = _settings.OcrTranslateInVision;
         _maxTextLengthBox.Text = _settings.MaxTextLength.ToString(CultureInfo.InvariantCulture);
     }
 
@@ -262,6 +302,9 @@ public class SettingsForm : Form
         AddFieldRow(table, row++, "Ollama API 網址", _urlBox);
         AddFieldRow(table, row++, "快捷鍵", _hotkeyBox);
         AddFieldRow(table, row++, "TTS 快捷鍵", _ttsHotkeyBox);
+        AddFieldRow(table, row++, "辨識 (OCR) 模型名稱", _ocrModelBox);
+        AddFieldRow(table, row++, "辨識 (OCR) 快捷鍵", _ocrHotkeyBox);
+        AddFieldRow(table, row++, string.Empty, _ocrTranslateInVisionBox);
         AddFieldRow(table, row++, "選取文字上限字數", _maxTextLengthBox);
         AddFieldRow(table, row++, string.Empty, _startWithWindowsBox);
 

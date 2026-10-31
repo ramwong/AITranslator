@@ -93,6 +93,34 @@ public class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public void Load_MissingFile_DefaultsIncludeOcrFields() // 檔案不存在時 OCR 三欄亦回預設值
+    {
+        var loaded = SettingsService.Load(_settingsPath);
+
+        Assert.Equal("gemma4:31b-cloud", loaded.OcrModel);
+        Assert.Equal("Ctrl+Alt+I", loaded.OcrHotkey);
+        Assert.False(loaded.OcrTranslateInVision);
+    }
+
+    [Fact]
+    public void SaveAndLoad_RoundTripsOcrFields() // 寫入自訂 OCR 三欄後載回相同值
+    {
+        var original = new AppSettings
+        {
+            OcrModel = "m:vision",
+            OcrHotkey = "Ctrl+Alt+K",
+            OcrTranslateInVision = true,
+        };
+
+        SettingsService.Save(_settingsPath, original);
+        var loaded = SettingsService.Load(_settingsPath);
+
+        Assert.Equal("m:vision", loaded.OcrModel);
+        Assert.Equal("Ctrl+Alt+K", loaded.OcrHotkey);
+        Assert.True(loaded.OcrTranslateInVision);
+    }
+
+    [Fact]
     public void MissingFile_ReturnsDefaults()
     {
         var loaded = SettingsService.Load(_settingsPath);
