@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Linq;
 using AITranslator.Models;
 using AITranslator.Services;
 using Xunit;
@@ -229,6 +230,142 @@ public class OllamaClientTests
         Assert.False(result.Success);
         Assert.Equal(string.Empty, result.Text);
         Assert.Equal(string.Empty, result.Error);
+    }
+
+    // ---------- OCR 辨識呼叫 ----------
+
+    [Fact]
+    public async Task RecognizeAsync_SendModelPromptImagesToGenerate()
+    {
+        var (client, handler) = CreateClient();
+        var settings = CreateSettings();
+        settings.OcrModel = "gemma4:31b-cloud";
+        handler.Response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"response\":\"你好\"}", Encoding.UTF8, "application/json"),
+        };
+
+        var result = await client.RecognizeAsync(settings, "aGVsbG8=", "打字", CancellationToken.None);
+
+        var body = LastBodyOrThrow(handler);
+        Assert.Contains("\"stream\":false", body);
+        using var doc = JsonDocument.Parse(body);
+        Assert.Equal("gemma4:31b-cloud", doc.RootElement.GetProperty("model").GetString());
+        Assert.Equal("打字", doc.RootElement.GetProperty("prompt").GetString());
+        Assert.Equal("aGVsbG8=", doc.RootElement.GetProperty("images").EnumerateArray().First().GetString());
+        Assert.Equal("http://localhost:11434/api/generate", handler.LastRequest!.RequestUri!.ToString());
+        Assert.True(result.Success);
+        Assert.Equal("你好", result.Text);
+        Assert.Equal(string.Empty, result.Error);
+    }
+
+    [Fact]
+    public async Task RecognizeAsync_ModelNotFound400_UsesOcrModelNameInError()
+    {
+        var (client, handler) = CreateClient();
+        var settings = CreateSettings();
+        settings.OcrModel = "gemma4:31b-cloud";
+        handler.Response = new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = new StringContent(
+                """{"error":"model \"gemma4:31b-cloud\" not found, try pulling it first"}""",
+                Encoding.UTF8,
+                "application/json"),
+        };
+
+        var result = await client.RecognizeAsync(settings, "aGVsbG8=", "打字", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(string.Empty, result.Text);
+        Assert.Contains("找不到模型 \"gemma4:31b-cloud\"", result.Error);
+        Assert.DoesNotContain("beam:cloud", result.Error);
+        Assert.Contains("請確認名稱是否正確", result.Error);
+    }
+
+    [Fact]
+    public async Task RecognizeAsync_ConnectionFailure_ReturnsCantConnectMessage()
+    {
+        var (client, handler) = CreateClient();
+        handler.Thrown = new HttpRequestException("socket error");
+
+        var result = await client.RecognizeAsync(CreateSettings(), "aGVsbG8=", "打字", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(string.Empty, result.Text);
+        Assert.Equal(
+            "無法連線到 Ollama (http://localhost:11434)，請確認 Ollama 已啟動",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task RecognizeAsync_ExternalCancellation_ReturnsEmptyErrorSuccessFalse()
+    {
+        var (client, handler) = CreateClient();
+        handler.HangUntilCancelled = true;
+        using var cts = new CancellationTokenSource(200);
+
+        var result = await client.RecognizeAsync(CreateSettings(), "aGVsbG8=", "打字", cts.Token);
+
+        Assert.False(result.Success);
+        Assert.Equal(string.Empty, result.Text);
+        Assert.Equal(string.Empty, result.Error);
+    }
+
+    [Fact]
+    public async Task RecognizeOcrTextAsync_UsesOcrPromptAndOcrModel()
+    {
+        var (client, handler) = CreateClient();
+        var settings = CreateSettings();
+        settings.OcrModel = "gemma4:31b-cloud";
+        settings.PromptTemplate = "翻譯成繁體中文:\n{text}";
+        handler.Response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"response\":\"辨識文字\"}", Encoding.UTF8, "application/json"),
+        };
+
+        var result = await client.RecognizeOcrTextAsync(settings, "aGVsbG8=", CancellationToken.None);
+
+        using var doc = JsonDocument.Parse(LastBodyOrThrow(handler));
+        Assert.Equal("gemma4:31b-cloud", doc.RootElement.GetProperty("model").GetString());
+        Assert.Equal(OllamaClient.OcrPrompt, doc.RootElement.GetProperty("prompt").GetString());
+        Assert.Equal("辨識文字", result.Text);
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public async Task RecognizeAndTranslateAsync_UsesImagePlaceholderInTemplate()
+    {
+        var (client, handler) = CreateClient();
+        var settings = CreateSettings(template: "翻譯成繁體中文:\n{text}");
+        settings.OcrModel = "gemma4:31b-cloud";
+        handler.Response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"response\":\"譯文\"}", Encoding.UTF8, "application/json"),
+        };
+
+        var result = await client.RecognizeAndTranslateAsync(settings, "aGVsbG8=", CancellationToken.None);
+
+        using var doc = JsonDocument.Parse(LastBodyOrThrow(handler));
+        Assert.Equal(
+            "翻譯成繁體中文:\n這張圖片中的文字",
+            doc.RootElement.GetProperty("prompt").GetString());
+        Assert.Equal("譯文", result.Text);
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public void PromptBuilder_BuildImagePrompt_ReplacesPlaceholderLiteral()
+    {
+        Assert.Contains("這張圖片中的文字", PromptBuilder.Build("翻譯:\n{text}", OllamaClient.OcrImagePlaceholderText));
+    }
+
+    [Fact]
+    public void OcrPromptConst_MatchesSpecifiedText()
+    {
+        Assert.Equal(
+            "請原樣輸出圖片中的所有文字，保留原始段落與分行，不要翻譯、不要解釋、不要加註。",
+            OllamaClient.OcrPrompt);
+        Assert.Equal("這張圖片中的文字", OllamaClient.OcrImagePlaceholderText);
     }
 
     [Fact]
