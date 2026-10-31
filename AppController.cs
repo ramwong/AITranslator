@@ -517,6 +517,8 @@ public sealed class AppController : IDisposable
 
         _requestId++;
 
+        _ttsFromPopup = false; // 翻譯熱鍵接管：先前彈窗 🔊 會話的狀態改回 toast 語意，避免其失敗路由至彈窗狀態列
+
         if (_popup != null && _popup.IsDisposed)
         {
             _popup = null;
@@ -619,6 +621,8 @@ public sealed class AppController : IDisposable
         }
 
         _requestId++;
+
+        _ttsFromPopup = false; // OCR 熱鍵接管：先前彈窗 🔊 會話的狀態改回 toast 語意，避免其失敗路由至彈窗狀態列
 
         if (_popup != null && _popup.IsDisposed)
         {
@@ -853,11 +857,9 @@ public sealed class AppController : IDisposable
                 _pendingTtsText = sourceText;
                 _ttsService.EnsureLoaded();
                 popup.ShowTtsStatus(FormatTtsFailed(lastError), isError: true);
-                // 已知限制（Task 3 review 擱置項）：上一行的 isError:true 會在彈窗內安插 2500ms
-                // 自動關閉計時器（ArmToastTimer），而本層無法解除——PopupForm.ShowTtsStatus 的
-                // 非 error 分支不呼叫 StopToastTimer，其公開 API 亦無不破壞內容／不關窗的解除入口。
-                // 若重載在 2500ms 內完成，隨後的「朗讀中…」狀態可能連同彈窗一起被舊計時器關閉。
-                // 唯一乾淨修法為 PopupForm.ShowTtsStatus 的非 error 分支補一行 StopToastTimer()。
+                // TTS 失敗經狀態條顯示：isError 分支安插 2500ms 自動關閉倒數（沿用 toast 計時器）；
+                // PopupForm.ShowTtsStatus 的非 error 分支已 StopToastTimer（dc3a847），狀態被
+                // 「朗讀中…／TTS 初始化中…」覆寫時不再殘留懸空計時器誤關忙碌中的彈窗。
                 return;
 
             case TtsState.Ready:

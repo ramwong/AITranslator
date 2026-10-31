@@ -11,6 +11,8 @@ public class HotkeyRecorderTests
     [InlineData(Keys.Control | Keys.F5, "Ctrl+F5")]
     [InlineData(Keys.Shift | Keys.ControlKey, null)]   // 純修飾鍵 → null
     [InlineData(Keys.Control | Keys.ShiftKey, null)]   // 同上（ShiftKey 是鍵身不是 Shift 修飾）
+    [InlineData(Keys.Control | Keys.Space, null)]  // 空白鍵非白名單主鍵
+    [InlineData(Keys.Control | Keys.D1, null)]     // 數字鍵非白名單主鍵
     [InlineData((Keys)0, null)]
     public void FormatKeys_NormalizesAndRejectsModifierOnly(Keys keys, string? expected)
         => Assert.Equal(expected, HotkeyRecorder.FormatKeys(keys));

@@ -49,6 +49,21 @@ internal static class HotkeyRecorder
             return null; // 純修飾鍵（Ctrl/Shift 單按、Win 鍵等）不錄
         }
 
+        // 主鍵先過白名單再組字串：白名單未過一律回 null，不輸出 "Ctrl+" 這類半成品。
+        string mainToken;
+        if (main >= Keys.A && main <= Keys.Z)
+        {
+            mainToken = ((char)('A' + (main - Keys.A))).ToString(); // 單一英文字母（大寫）
+        }
+        else if (main >= Keys.F1 && main <= Keys.F12)
+        {
+            mainToken = $"F{(int)main - (int)Keys.F1 + 1}"; // F1–F12
+        }
+        else
+        {
+            return null; // 非 A–Z／F1–F12（Space、數字、方向鍵等）：Parser 不接受，靜默忽略
+        }
+
         // 修飾鍵 token 依 Ctrl、Alt、Shift 固定順序輸出。
         var text = new StringBuilder();
         if (ctrl)
@@ -66,16 +81,8 @@ internal static class HotkeyRecorder
             text.Append("Shift+");
         }
 
-        if (main >= Keys.A && main <= Keys.Z)
-        {
-            text.Append((char)('A' + (main - Keys.A))); // 單一英文字母（大寫）
-        }
-        else if (main >= Keys.F1 && main <= Keys.F12)
-        {
-            text.Append("F").Append((int)main - (int)Keys.F1 + 1); // F1–F12
-        }
-
-        return text.Length == 0 ? null : text.ToString();
+        text.Append(mainToken);
+        return text.ToString();
     }
 
     /// <summary>判斷主鍵是否為修飾鍵的鍵身（此為主鍵時即為純修飾鍵組合）。</summary>
