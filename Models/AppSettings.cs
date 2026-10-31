@@ -18,6 +18,9 @@ public class AppSettings
 
     public string Hotkey { get; set; } = "Ctrl+Alt+E";
 
+    /// <summary>朗讀選取文字（TTS）的快捷鍵，不可與 <see cref="Hotkey"/> 相同。</summary>
+    public string TtsHotkey { get; set; } = "Ctrl+Alt+S";
+
     public int MaxTextLength { get; set; } = 5000;
 
     public bool StartWithWindows { get; set; }

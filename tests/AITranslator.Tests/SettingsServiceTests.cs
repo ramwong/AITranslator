@@ -72,6 +72,27 @@ public class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public void Load_MissingTtsHotkeyField_DefaultsCtrlAltS() // 現行 settings.json 無此欄
+    {
+        File.WriteAllText(_settingsPath, "{}");
+
+        var loaded = SettingsService.Load(_settingsPath);
+
+        Assert.Equal("Ctrl+Alt+S", loaded.TtsHotkey);
+    }
+
+    [Fact]
+    public void SaveLoad_RoundTrips_TtsHotkey() // 寫 "Ctrl+Shift+T" 載回相同值
+    {
+        var original = new AppSettings { TtsHotkey = "Ctrl+Shift+T" };
+
+        SettingsService.Save(_settingsPath, original);
+        var loaded = SettingsService.Load(_settingsPath);
+
+        Assert.Equal("Ctrl+Shift+T", loaded.TtsHotkey);
+    }
+
+    [Fact]
     public void MissingFile_ReturnsDefaults()
     {
         var loaded = SettingsService.Load(_settingsPath);

@@ -38,6 +38,7 @@ public class SettingsForm : Form
     private readonly TextBox _modelBox;
     private readonly TextBox _urlBox;
     private readonly TextBox _hotkeyBox;
+    private readonly TextBox _ttsHotkeyBox;
     private readonly TextBox _maxTextLengthBox;
     private readonly CheckBox _startWithWindowsBox;
 
@@ -56,6 +57,7 @@ public class SettingsForm : Form
         _modelBox = CreateTextBox();
         _urlBox = CreateTextBox();
         _hotkeyBox = CreateTextBox();
+        _ttsHotkeyBox = CreateTextBox();
         _maxTextLengthBox = CreateTextBox();
 
         _templateBox = CreateTextBox();
@@ -123,6 +125,22 @@ public class SettingsForm : Form
             return;
         }
 
+        // TTS 快捷鍵沿用主快捷鍵的格式規則與訊息文案。
+        var ttsHotkey = _ttsHotkeyBox.Text.Trim();
+        if (!HotkeyParser.Parse(ttsHotkey).success)
+        {
+            ShowValidationError(_ttsHotkeyBox,
+                "快捷鍵格式不正確。需含 Ctrl、Alt 或 Shift 與單一英文字母（或 F1–F12），例如 Ctrl+Alt+E。");
+            return;
+        }
+
+        // 兩組熱鍵不可相同（Trim 後不分大小寫比較）。
+        if (string.Equals(hotkey, ttsHotkey, StringComparison.OrdinalIgnoreCase))
+        {
+            ShowValidationError(_ttsHotkeyBox, "TTS 快捷鍵不可與翻譯快捷鍵相同。");
+            return;
+        }
+
         // 全部通過才改寫設定實例。
         _settings.PopupWidth = popupWidth;
         _settings.PopupHeight = popupHeight;
@@ -132,6 +150,7 @@ public class SettingsForm : Form
         _settings.OllamaUrl = _urlBox.Text.Trim();
         _settings.PromptTemplate = _templateBox.Text.Trim();
         _settings.Hotkey = hotkey;
+        _settings.TtsHotkey = ttsHotkey;
         _settings.StartWithWindows = _startWithWindowsBox.Checked;
 
         try
@@ -212,6 +231,7 @@ public class SettingsForm : Form
         _modelBox.Text = _settings.Model;
         _urlBox.Text = _settings.OllamaUrl;
         _hotkeyBox.Text = _settings.Hotkey;           // 顯示如「Ctrl+Alt+E」
+        _ttsHotkeyBox.Text = _settings.TtsHotkey;     // 顯示如「Ctrl+Alt+S」
         _maxTextLengthBox.Text = _settings.MaxTextLength.ToString(CultureInfo.InvariantCulture);
     }
 
@@ -241,6 +261,7 @@ public class SettingsForm : Form
         AddFieldRow(table, row++, "Ollama 模型名稱", _modelBox);
         AddFieldRow(table, row++, "Ollama API 網址", _urlBox);
         AddFieldRow(table, row++, "快捷鍵", _hotkeyBox);
+        AddFieldRow(table, row++, "TTS 快捷鍵", _ttsHotkeyBox);
         AddFieldRow(table, row++, "選取文字上限字數", _maxTextLengthBox);
         AddFieldRow(table, row++, string.Empty, _startWithWindowsBox);
 
