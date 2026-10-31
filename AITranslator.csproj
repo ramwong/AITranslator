@@ -14,4 +14,15 @@
   <ItemGroup>
     <InternalsVisibleTo Include="AITranslator.Tests" />
   </ItemGroup>
+  <!-- TTS 嵌入資產（assets/ 由 scripts/fetch-assets.ps1 下載、已 gitignore）：
+       資產缺失時條件不成立、不嵌入，改由 WarnMissingTtsAssets 發出建置警告。 -->
+  <ItemGroup>
+    <EmbeddedResource Include="assets\tts\**\*"
+                      Condition="Exists('assets\tts\model\model.q8.gguf')"
+                      LogicalName="AITranslator.Tts.%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+  <Target Name="WarnMissingTtsAssets" BeforeTargets="BeforeBuild">
+    <Warning Condition="!Exists('assets\tts\model\model.q8.gguf')"
+             Text="缺少 TTS 資產（assets\tts\）；執行 scripts/fetch-assets.ps1 取得" />
+  </Target>
 </Project>
