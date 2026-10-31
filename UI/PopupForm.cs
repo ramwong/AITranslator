@@ -21,8 +21,12 @@ namespace AITranslator.UI;
 /// 左上角，並 clamp 進 <see cref="Screen.FromPoint(Point)"/> 所在螢幕的 WorkingArea
 /// （多螢幕以滑鼠所在螢幕為準），彈窗永不溢出可視範圍。</para>
 ///
-/// <para><b>捲動</b>：譯文 Label 放在 <see cref="Panel"/>（AutoScroll=true、Dock=Fill）
-/// 內，Label AutoSize 依內容換行長高；譯文超過彈窗高度時出現縱向捲軸而不被裁切。</para>
+/// <para><b>捲動</b>：譯文以多行唯讀 <see cref="TextBox"/>（WordWrap、縱向捲軸、
+/// 無邊框、Dock=Fill）顯示，由原生 EDIT 控制項自管折行、捲動與繪製。
+/// 強制縱向捲軸常駐（ScrollBars=Vertical 為常顯性）：短文僅右側多一條空捲軸，
+/// 換取不需要自行量測/長高 Label 的設計——Label（AutoSize）的量測（
+/// TextRenderer.MeasureText）與繪製是兩條程式路徑，遇 PDF 擷取帶入的特殊字元
+/// （如 U+00AD 軟連字符）可能量測低估，導致譯文尾部整段被裁切且捲動亦不可見。</para>
 ///
 /// <para><b>關閉</b>：第一次顯示時啟用 <see cref="DismissHook"/>
 /// （點擊彈窗以外任意處或按 Esc → Close）；<see cref="Form.OnClosed"/> 對應呼叫
@@ -42,8 +46,7 @@ public class PopupForm : Form
     private const int Offset = 16; // 滑鼠位置到彈窗左上角的方向偏移（px）
     private const int ToastAutoCloseMs = 2500; // toast 顯示多久後自動關閉（spec：顯示提示後自動關閉）
 
-    private readonly Panel _scrollPanel;
-    private readonly Label _label;
+    private readonly TextBox _textBox;
     private readonly Button _copyButton;
     private readonly Font _font;
     private System.Windows.Forms.Timer? _toastTimer; // toast 自動關閉計時器；ShowTranslation 重用時取消
@@ -66,26 +69,24 @@ public class PopupForm : Form
         Size = new Size(settings.PopupWidth, settings.PopupHeight);
 
         _font = new Font(Control.DefaultFont.FontFamily, settings.FontSize);
+        Padding = new Padding(12); // 取代舊 Label 的 12px 位移內距（Dock 的 TextBox 會讓開 Padding）
 
-        // 捲動容器：譯文超過彈窗可視高度時出現縱向捲軸（Label 不再被裁切）。
-        _scrollPanel = new Panel
+        // 多行唯讀 TextBox：折行、捲動、繪製皆由原生 EDIT 控制項自管，
+        // 不再有「量測高度 vs 實際繪製」的兩條路徑可分歧（Label AutoSize 的已知弱點）。
+        _textBox = new TextBox
         {
+            Multiline = true,
+            ReadOnly = true,
+            WordWrap = true,
+            ScrollBars = ScrollBars.Vertical, // 常顯縱向捲軸；短文只是多一條空捲軸
+            BorderStyle = BorderStyle.None,
             Dock = DockStyle.Fill,
-            AutoScroll = true,
-        };
-        _scrollPanel.ClientSizeChanged += OnScrollPanelClientSizeChanged;
-
-        // AutoSize + MaximumSize（寬=面板可視寬、高不限）：文字依寬度換行、長度不限，
-        // 超過面板高度時由 AutoScroll 捲動露出。Label 不得 Dock：
-        // 被 dock 的子控制項會被拘限在可視區內，AutoScroll 不會為它出捲軸。
-        _label = new Label
-        {
-            AutoSize = true,
-            TextAlign = ContentAlignment.TopLeft,
-            Location = new Point(12, 12), // 內距改以位移表示（AutoSize Label 的原 Padding 即視覺內距）
             Font = _font,
+            TabStop = false,
+            Cursor = Cursors.Arrow,           // 無法就地編輯，不擬 I-beam
         };
-        _scrollPanel.Controls.Add(_label);
+        // 建構子已設 ReadOnly：在 ReadOnly 之後才設背景色，避免預設灰底蓋掉自訂色。
+        _textBox.BackColor = BackColor; // 與舊設計同觀感（表單底色上的文字，不做白紙框）
 
         _copyButton = new Button
         {
@@ -96,9 +97,9 @@ public class PopupForm : Form
         };
         _copyButton.Click += OnCopyButtonClick;
 
-        // 先加入 Fill 的 Panel，再加入 Dock=Bottom 的 Button：
-        // WinForms 由集合尾端起 dock，Button 先佔底部，Panel 才填滿其餘區域。
-        Controls.Add(_scrollPanel);
+        // 先加入 Fill 的 TextBox，再加入 Dock=Bottom 的 Button：
+        // WinForms 由集合尾端起 dock，Button 先佔底部，TextBox 才填滿其餘區域。
+        Controls.Add(_textBox);
         Controls.Add(_copyButton);
     }
 
@@ -134,10 +135,9 @@ public class PopupForm : Form
         Location = ComputePosition(mousePos);
         _result = null;
         _busy = true;
-        _label.Text = statusText ?? string.Empty;
+        _textBox.Text = statusText ?? string.Empty;
         _copyButton.Enabled = false;
         StopToastTimer(); // 抓走 toast 彈窗改顯譯文/狀態後，絕不可再自動關閉
-        UpdateLabelWidth();
 
         if (!Visible)
         {
@@ -156,9 +156,8 @@ public class PopupForm : Form
         Location = ComputePosition(mousePos);
         _result = null;
         _busy = false;
-        _label.Text = text ?? string.Empty;
+        _textBox.Text = text ?? string.Empty;
         _copyButton.Enabled = false;
-        UpdateLabelWidth();
 
         if (!Visible)
         {
@@ -201,34 +200,14 @@ public class PopupForm : Form
     }
 
     /// <summary>
-    /// 依捲動面板可視寬度限制 Label 寬（高度不限，0 = 無上限），
-    /// 讓文字換行並在過長時觸發 AutoScroll 縱向捲軸。
-    /// </summary>
-    private void UpdateLabelWidth()
-    {
-        int width = Math.Max(1, _scrollPanel.ClientSize.Width - 24); // 左右各 12px 內距
-        if (_label.MaximumSize.Width != width)
-        {
-            _label.MaximumSize = new Size(width, 0);
-        }
-    }
-
-    private void OnScrollPanelClientSizeChanged(object? sender, EventArgs e)
-    {
-        // 縱向捲軸出現/消失會改變可視寬，Label 寬度隨之調整（避免橫向捲軸）。
-        UpdateLabelWidth();
-    }
-
-    /// <summary>
     /// 以譯文更新內容並允許「複製」。譯文為空字串或 null 時按鈕保持禁用。
     /// </summary>
     public void SetText(string result)
     {
         _result = result;
         _busy = false;
-        _label.Text = result ?? string.Empty;
+        _textBox.Text = result ?? string.Empty;
         _copyButton.Enabled = !string.IsNullOrEmpty(result);
-        UpdateLabelWidth(); // 防禦：確保長譯文觸發捲動而非被裁切
     }
 
     protected override void OnShown(EventArgs e)
