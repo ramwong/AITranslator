@@ -44,6 +44,7 @@ public class SettingsForm : Form
     private readonly CheckBox _ocrTranslateInVisionBox;
     private readonly TextBox _maxTextLengthBox;
     private readonly CheckBox _startWithWindowsBox;
+    private readonly ComboBox _popupLayoutBox;
 
     /// <summary>以設定檔路徑與存檔回呼建立設定對話框，欄位即載入現行設定。</summary>
     public SettingsForm(string settingsPath, SettingsChangedCallback onChanged)
@@ -84,6 +85,15 @@ public class SettingsForm : Form
             AutoSize = true,
             Text = "辨識模型直接翻譯",
         };
+
+        // 彈窗版面下拉選單：項目順序對應 PopupLayout enum 值（0–2）。
+        _popupLayoutBox = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+        };
+        _popupLayoutBox.Items.Add("左右分欄");
+        _popupLayoutBox.Items.Add("上下分段");
+        _popupLayoutBox.Items.Add("純譯文");
 
         PopulateFields();
         BuildLayout();
@@ -179,6 +189,8 @@ public class SettingsForm : Form
         _settings.PopupWidth = popupWidth;
         _settings.PopupHeight = popupHeight;
         _settings.FontSize = fontSize;
+        // DropDownList 型別必有 0–2 的 SelectedIndex，直接對應 enum 值。
+        _settings.PopupLayout = (PopupLayout)_popupLayoutBox.SelectedIndex;
         _settings.MaxTextLength = maxTextLength;
         _settings.Model = _modelBox.Text.Trim();
         _settings.OllamaUrl = _urlBox.Text.Trim();
@@ -273,6 +285,7 @@ public class SettingsForm : Form
         _ocrHotkeyBox.Text = _settings.OcrHotkey;     // 顯示如「Ctrl+Alt+I」
         _ocrTranslateInVisionBox.Checked = _settings.OcrTranslateInVision;
         _maxTextLengthBox.Text = _settings.MaxTextLength.ToString(CultureInfo.InvariantCulture);
+        _popupLayoutBox.SelectedIndex = (int)_settings.PopupLayout;
     }
 
     private void BuildLayout()
@@ -291,6 +304,7 @@ public class SettingsForm : Form
         AddFieldRow(table, row++, "彈窗寬度", _widthBox);
         AddFieldRow(table, row++, "彈窗高度", _heightBox);
         AddFieldRow(table, row++, "彈窗字型大小", _fontSizeBox);
+        AddFieldRow(table, row++, "彈窗版面", _popupLayoutBox);
 
         // Prompt 範本：絕對高度列 + Dock=Fill，讓多行 TextBox 約 70px。
         AddLabel(table, row, "Prompt 翻譯範本");
