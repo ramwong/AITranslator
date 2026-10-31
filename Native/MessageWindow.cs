@@ -13,11 +13,12 @@ public sealed class MessageWindow : NativeWindow
 {
     private const int HWND_MESSAGE = -3; // message-only 視窗的父視窗代號
 
-    private readonly Action _onHotkey;
+    private readonly Action<int> _onHotkey;
 
-    /// <paramref name="onHotkey"/> 收到 WM_HOTKEY 時的回呼，
+    /// <paramref name="onHotkey"/> 收到 WM_HOTKEY 時的回呼，參數為
+    /// RegisterHotKey 時使用的熱鍵 id（即訊息的 WParam），
     /// 會在建立本視窗的（UI）執行緒上被呼叫。
-    public MessageWindow(Action onHotkey)
+    public MessageWindow(Action<int> onHotkey)
     {
         _onHotkey = onHotkey ?? throw new ArgumentNullException(nameof(onHotkey));
 
@@ -39,7 +40,7 @@ public sealed class MessageWindow : NativeWindow
     {
         if (m.Msg == Win32.WM_HOTKEY)
         {
-            _onHotkey();
+            _onHotkey((int)m.WParam); // WParam 為註冊時的熱鍵 id，由呼叫端分派
             return; // WM_HOTKEY 已處理，不需轉交 base
         }
 

@@ -32,6 +32,12 @@ public sealed class AppController : IDisposable
     private const string TranslatingText = "翻譯中…";
     private const string EmptyTranslationText = "未取得翻譯內容";
 
+    /// <summary>翻譯熱鍵的註冊 id（RegisterHotKey / WM_HOTKEY WParam 皆以此識別）。</summary>
+    private const int HotkeyIdTranslate = 1;
+
+    /// <summary>朗讀（TTS）熱鍵的註冊 id；處理邏輯於後續 Task 實作。</summary>
+    private const int HotkeyIdTts = 2;
+
     private readonly string _settingsPath;
     private readonly MessageWindow _window;
     private readonly HotkeyService _hotkeyService;
@@ -52,11 +58,11 @@ public sealed class AppController : IDisposable
         _captureService = new CaptureService(_settings.MaxTextLength);
         _ollamaClient = new OllamaClient(new HttpClient());
 
-        _window = new MessageWindow(OnHotkey);
-        _hotkeyService = new HotkeyService(_window, OnHotkey);
+        _window = new MessageWindow(OnHotkeyDispatch);
+        _hotkeyService = new HotkeyService(_window);
         _notifyIcon = CreateNotifyIcon();
 
-        if (!_hotkeyService.Register(_settings.Hotkey))
+        if (!_hotkeyService.Register(HotkeyIdTranslate, _settings.Hotkey))
         {
             ShowRegisterFailureBalloon();
         }
@@ -95,7 +101,7 @@ public sealed class AppController : IDisposable
         _settings = newSettings;
         _captureService = new CaptureService(newSettings.MaxTextLength);
 
-        if (!_hotkeyService.ReRegister(newSettings.Hotkey))
+        if (!_hotkeyService.ReRegister(HotkeyIdTranslate, newSettings.Hotkey))
         {
             ShowRegisterFailureBalloon();
         }
@@ -109,7 +115,26 @@ public sealed class AppController : IDisposable
     }
 
     /// <summary>
-    /// 熱鍵觸發（UI 執行緒）：取消進行中的請求 → 同步擷取選取文字 →
+    /// WM_HOTKEY 分派（UI 執行緒）：依註冊 id 導向對應流程。
+    /// <see cref="HotkeyIdTranslate"/> 走翻譯流程；<see cref="HotkeyIdTts"/> 目前為佔位
+    /// （朗讀流程由後續 Task 實作），收到時不做事。
+    /// </summary>
+    private void OnHotkeyDispatch(int hotkeyId)
+    {
+        switch (hotkeyId)
+        {
+            case HotkeyIdTranslate:
+                OnHotkey();
+                break;
+
+            case HotkeyIdTts:
+                // 佔位：朗讀流程由後續 Task 實作
+                return;
+        }
+    }
+
+    /// <summary>
+    /// 翻譯熱鍵流程（UI 執行緒）：取消進行中的請求 → 同步擷取選取文字 →
     /// 依結果顯示 toast 或「翻譯中…」後啟動翻譯。
     /// 擷取（Clipboard + SendInput）必須同步在 UI 執行緒完成，await 之後才開始。
     /// </summary>
@@ -246,7 +271,7 @@ public sealed class AppController : IDisposable
         }
 
         DiscardPopup();
-        _hotkeyService.Unregister();
+        _hotkeyService.Unregister(HotkeyIdTranslate);
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
         Application.Exit();
@@ -261,7 +286,7 @@ public sealed class AppController : IDisposable
 
         // 正常離開走 Exit()；此處僅做防禦性清理（例如未經選單的關閉路徑）。
         _disposed = true;
-        _hotkeyService.Unregister();
+        _hotkeyService.Unregister(HotkeyIdTranslate);
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
     }
