@@ -6,4 +6,5 @@ TestResults/
 publish/
 assets/
 .superpowers/
-.codegraph/.worktrees/
+.codegraph/
+.worktrees/
