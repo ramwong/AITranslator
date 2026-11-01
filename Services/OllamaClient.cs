@@ -83,7 +83,7 @@ public sealed class OllamaClient
         => RecognizeAsync(
             settings,
             imageBase64,
-            OcrCombinedPrefix + "\n\n" + PromptBuilder.Build(settings.PromptTemplate, OcrImagePlaceholderText),
+            OcrCombinedPrefix + "\n\n" + PromptBuilder.BuildTranslation(settings.PromptTemplate, OcrImagePlaceholderText),
             ct);
 
     /// <summary>

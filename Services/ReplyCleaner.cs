@@ -14,13 +14,13 @@ public static class ReplyCleaner
     private static readonly (string Key, string Value)[] Replacements =
     [
         ("\\Leftrightarrow", "⇔"), ("\\leftrightarrow", "↔"),
-        ("\\Rightarrow", "⇒"), ("\\Leftarrow", "⇒"),
+        ("\\Rightarrow", "⇒"), ("\\Leftarrow", "⇐"),
         ("\\longrightarrow", "⟶"), ("\\longleftarrow", "⟵"),
         ("\\rightarrow", "→"), ("\\leftarrow", "←"),
         ("\\uparrow", "↑"), ("\\downarrow", "↓"), ("\\to", "→"),
-        ("&Rightarrow;", "⇒"), ("&Leftarrow;", "⇒"),
+        ("&Rightarrow;", "⇒"), ("&Leftarrow;", "⇐"),
         ("&rightarrow;", "→"), ("&leftarrow;", "←"),
-        ("&rArr;", "⇒"), ("&lArr;", "⇒"), ("&harr;", "↔"),
+        ("&rArr;", "⇒"), ("&lArr;", "⇐"), ("&harr;", "↔"),
         ("&rarr;", "→"), ("&larr;", "←"),
         ("&uarr;", "↑"), ("&darr;", "↓"),
         ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""),
