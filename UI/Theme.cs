@@ -31,7 +31,7 @@ internal static class Theme
     /// <summary>原文文字色 <c>#8A8578</c>：原文面板的原文文字。</summary>
     internal static readonly Color SourceText = Color.FromArgb(138, 133, 120);
 
-    /// <summary>小標色 <c>#A8A294</c>：小節標題、原文面板上緣小標「選取文字」。</summary>
+    /// <summary>小標色 <c>#A8A294</c>：設定表單小節標題等次要文字。</summary>
     internal static readonly Color Caption = Color.FromArgb(168, 162, 148);
 
     /// <summary>動作列底色 <c>#F7F5EE</c>：彈窗動作列、設定按鈕列的底色。</summary>
