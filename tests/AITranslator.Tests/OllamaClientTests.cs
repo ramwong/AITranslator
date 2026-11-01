@@ -135,7 +135,9 @@ public class OllamaClientTests
         await client.TranslateAsync(CreateSettings(template: template), text, CancellationToken.None);
 
         using var doc = JsonDocument.Parse(LastBodyOrThrow(handler));
-        Assert.Equal("翻譯成繁體中文:\nabc", doc.RootElement.GetProperty("prompt").GetString());
+        // 純文字輸出約束由 PromptBuilder 於譯文類 prompt 附加（使用者舊範本不需重置）
+        Assert.Equal("翻譯成繁體中文:\nabc" + PromptBuilder.MarkdownNoMarkupSuffix,
+            doc.RootElement.GetProperty("prompt").GetString());
     }
 
     [Fact]
@@ -147,7 +149,8 @@ public class OllamaClientTests
             CreateSettings(template: "請翻譯以下內容"), "abc", CancellationToken.None);
 
         using var doc = JsonDocument.Parse(LastBodyOrThrow(handler));
-        Assert.Equal("請翻譯以下內容\nabc", doc.RootElement.GetProperty("prompt").GetString());
+        Assert.Equal("請翻譯以下內容\nabc" + PromptBuilder.MarkdownNoMarkupSuffix,
+            doc.RootElement.GetProperty("prompt").GetString());
     }
 
     // ---------- 錯誤映射 ----------
@@ -347,7 +350,7 @@ public class OllamaClientTests
 
         using var doc = JsonDocument.Parse(LastBodyOrThrow(handler));
         Assert.Equal(
-            "翻譯成繁體中文:\n這張圖片中的文字",
+            "翻譯成繁體中文:\n這張圖片中的文字" + PromptBuilder.MarkdownNoMarkupSuffix,
             doc.RootElement.GetProperty("prompt").GetString());
         Assert.Equal("譯文", result.Text);
         Assert.True(result.Success);

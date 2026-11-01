@@ -44,11 +44,12 @@ public sealed class OllamaClient
         var payload = JsonSerializer.Serialize(new
         {
             model = settings.Model,
-            prompt = PromptBuilder.Build(settings.PromptTemplate, text),
+            prompt = PromptBuilder.BuildTranslation(settings.PromptTemplate, text),
             stream = false,
         });
 
-        return await SendGenerateAsync(settings.OllamaUrl, payload, settings.Model, ct);
+        var result = await SendGenerateAsync(settings.OllamaUrl, payload, settings.Model, ct);
+        return result.Success ? result with { Text = ReplyCleaner.Clean(result.Text) } : result;
     }
 
     /// <summary>圖片辨識核心呼叫：以指定提示詞向 <see cref="AppSettings.OcrModel"/> 送出帶影像的生成請求。</summary>
@@ -71,7 +72,7 @@ public sealed class OllamaClient
 
     /// <summary>單次呼叫模式：把 <see cref="OcrImagePlaceholderText"/> 套入翻譯模板，辨識後由同一模型直接輸出譯文。</summary>
     public Task<TranslateResult> RecognizeAndTranslateAsync(AppSettings settings, string imageBase64, CancellationToken ct)
-        => RecognizeAsync(settings, imageBase64, PromptBuilder.Build(settings.PromptTemplate, OcrImagePlaceholderText), ct);
+        => RecognizeAsync(settings, imageBase64, PromptBuilder.BuildTranslation(settings.PromptTemplate, OcrImagePlaceholderText), ct);
 
     /// <summary>
     /// 合併模式：單次呼叫同時取得原樣辨識文字與譯文。提示詞為 <see cref="OcrCombinedPrefix"/> 加上
@@ -107,7 +108,7 @@ public sealed class OllamaClient
                     : output[..(searchStart - 1)].TrimEnd('\r', '\n');
                 // Translation：分隔行之後的所有行（去掉一個行首換行）。
                 var translation = lineEnd < 0 ? string.Empty : output[(lineEnd + 1)..];
-                return (source, translation);
+                return (source, ReplyCleaner.Clean(translation));
             }
 
             if (lineEnd < 0)
@@ -118,7 +119,7 @@ public sealed class OllamaClient
             searchStart = lineEnd + 1;
         }
 
-        return (string.Empty, output);
+        return (string.Empty, ReplyCleaner.Clean(output)); // 無分隔行：整段視為譯文（仍過清潔）
     }
 
     private async Task<TranslateResult> SendGenerateAsync(string ollamaUrl, string payload, string model, CancellationToken ct)

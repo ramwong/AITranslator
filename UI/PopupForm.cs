@@ -300,11 +300,21 @@ public class PopupForm : Form
         footerContent.Controls.Add(_copyButton);
         footerContent.Controls.Add(_settingsButton);
 
-        // 動作列高度動態化：按鈕偏好高度 + footerContent 上下留白 + 髮絲線——
-        // 固定 36px 曾留 23px 帶高、把 31px 偏好按鈕裁掉上下緣；Theme.FooterHeight 為下限。
-        int preferredButtonHeight = Math.Max(
-            _copyButton.GetPreferredSize(Size.Empty).Height,
-            _settingsButton.GetPreferredSize(Size.Empty).Height);
+        // 動作列高度：按鈕偏好高度 + footerContent 上下留白 + 髮絲線，Theme.FooterHeight 為下限。
+        // **量測必須用未 dock 的探測按鈕**——已 Dock 的 AutoSize 按鈕其 GetPreferredSize 回傳的是
+        // 被 dock 拉伸後的當前尺寸（實測：右欄 800px 表單會回 761px），不是內容所需高度；
+        // 直接量列內按鈕曾使動作列跟著彈窗高度暴漲（bug：調高彈窗高度按鈕跟著變大）。
+        using var probe = new Button
+        {
+            Text = _copyButton.Text,
+            Font = _copyButton.Font,
+            FlatStyle = _copyButton.FlatStyle,
+            AutoSize = true,
+            MinimumSize = _copyButton.MinimumSize,
+            Margin = new Padding(0),
+            Padding = _copyButton.Padding,
+        };
+        int preferredButtonHeight = probe.GetPreferredSize(Size.Empty).Height;
         int dynamicFooterHeight = preferredButtonHeight + footerContent.Padding.Vertical + HairlineThickness;
 
         _footer = new Panel
