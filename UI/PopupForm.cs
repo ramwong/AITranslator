@@ -34,7 +34,7 @@ namespace AITranslator.UI;
 ///
 /// <para><b>④ 動作列</b>（<see cref="_footer"/>，Dock=Bottom、高
 /// <see cref="Theme.FooterHeight"/>、FooterBg 底＋上緣 Hairline 線）：靛青實心
-/// 「📋 複製」主鈕靠左（Accent 底＋Paper 色字）、「⚙」幽靈鈕靠右；無徽章（不做）。
+/// 「⚙」幽靈鈕靠左、「📋 複製」主鈕靠右（Accent 底＋Paper 色字，位於譯文欄正下方）；無徽章（不做）。
 /// 複製＝複製譯文，無譯文時禁用；複製成功（無論剪貼簿是否被獨佔）即關閉彈窗；
 /// 「⧉ 複製原文」複製後<b>不</b>關閉彈窗；兩顆複製共用同一個
 /// <see cref="CopyToClipboard"/> 容錯 helper。</para>
@@ -268,7 +268,7 @@ public class PopupForm : Form
         _statusBar.Controls.Add(statusLayout);
         _statusBar.Controls.Add(CreateHairline());
 
-        // ---- ④ 動作列（複製主鈕靠左、⚙ 幽靈鈕靠右）----
+        // ---- ④ 動作列（W3：⚙ 幽靈鈕靠左、複製主鈕靠右＝譯文欄正下方）----
         _copyButton = new Button
         {
             Text = "📋 複製",
