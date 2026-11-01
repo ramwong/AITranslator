@@ -13,12 +13,12 @@ namespace AITranslator.UI;
 /// spec：docs/superpowers/specs/2026-10-31-ui-redesign-design.md「彈窗」節）。
 /// 版面為單一「雙卡片」結構：
 ///
-/// <para><b>① 原文內嵌面板</b>（<see cref="_sourcePanel"/>，Dock=Top、高由內容 clamp）：
-/// Panel 色內嵌卡＋Hairline 邊框、內距約 <see cref="Theme.PanelPadding"/>；上緣小標
-/// 「選取文字」（Caption 色、11px 近似 letter-spacing 感）與右側兩顆幽靈文字鈕
-/// 「🔊 朗讀」「⧉ 複製原文」（MutedBtn 色文字）；原文文字以 SourceText 色顯示，
-/// 面板內 <see cref="TextBox"/> 自身可捲（OCR 長文完整性優先）。原文為空或只有空白時
-/// 兩鈕禁用。</para>
+/// <para><b>① 原文左欄</b>（<see cref="_sourcePanel"/>，左右版面 Dock=Left、
+/// 上層 row 內全高，寬＝表單寬 38%）：Panel 米色、右緣 Hairline 分隔線、內距
+/// <see cref="Theme.PanelPadding"/>；上緣列**無小標**（「⧉ 複製原文」鈕本身已隱含
+/// 「這裡是原文」，使用者決策）只剩右側兩顆幽靈文字鈕「🔊 朗讀」「⧉ 複製原文」
+/// （MutedBtn 色文字）；原文文字以 SourceText 色顯示，欄內 <see cref="TextBox"/>
+/// 自身可捲（OCR 長文完整性優先）。原文為空或只有空白時兩鈕禁用。</para>
 ///
 /// <para><b>② 譯文區</b>（<see cref="_translationBox"/>，Dock=Fill）：無背景大字
 /// （Ink 色為主），字級 = 設定值 + 2pt，視覺主角、可捲。</para>
@@ -62,14 +62,18 @@ namespace AITranslator.UI;
 /// 自身可捲），譯文為右側主欄（Fill、白紙墨字）。動作列「⚙ 設定」靠左、
 /// 「📋 複製」靠右——複製鈕位於譯文欄（右欄）正下方，空間語意＝複製譯文。
 /// 動作列高度動態化：max(<see cref="Theme.FooterHeight"/>, 按鈕偏好高度 + 上下
-/// 留白 + 髮絲線)，不再依賴固定高度（36px 固定值曾把 31px 偏好按鈕裁成半個）。
-/// 原為空的 toast/過渡狀態照樣畫出完整骨架（小標、空原文欄、狀態條、動作列），
+/// 留白 + 髮絲線)，不再依賴固定高度（36px 固定值曾把 31px 偏好按鈕裁成半個）；
+/// 按鈕字級已固定 12pt，字級設定放大時動作列不再跟著變高。
+/// 上下兩列結構：上列＝左右欄（<see cref="_contentRow"/>），下列＝全寬狀態條＋動作列。
+/// 原為空的 toast/過渡狀態照樣畫出完整骨架（空原文欄、狀態條、動作列），
 /// 不另開更小的卡。</para>
 ///
-/// <para><b>字體</b>：全文統一 <see cref="Theme.FontName"/>；建議字族不存在時退回
-/// 系統預設字族。按鈕另備 Segoe UI Symbol 字型（📋/🔊/⧉/⚙ 等 U+1F4CB/U+1F50A/
-/// U+29C9/U+2699 不在多數中文字族內，GDI 量測繪製會落成 .notdef 空框）；兩個主字型
-/// （本文＋譯文 +2pt）與小標/按鈕字型於 <see cref="Dispose"/> 一律釋放。</para>
+/// <para><b>字體</b>：本文統一 <see cref="Theme.FontName"/>（譯文 +2pt）；建議字族
+/// 不存在時退回系統預設字族。**按鈕字級固定 12pt**（<see cref="FixedButtonFontSize"/>，
+/// 不隨 settings.FontSize 縮放——使用者決策：字級調大時按鈕不需跟著變大）
+/// 且另備 Segoe UI Symbol 字型（📋/🔊/⧉/⚙ 等 U+1F4CB/U+1F50A/U+29C9/U+2699
+/// 不在多數中文字族內，GDI 量測繪製會落成 .notdef 空框）；各字型於
+/// <see cref="Dispose"/> 一律釋放。</para>
 ///
 /// <para><b>關閉</b>：第一次顯示時啟用 <see cref="DismissHook"/>
 /// （點擊彈窗以外任意處或按 Esc → Close）；<see cref="Form.OnClosed"/> 對應呼叫
@@ -101,14 +105,15 @@ public class PopupForm : Form
     private const int StatusDotSize = 8;       // 狀態條圓點直徑（px，spec：8px 圓點）
     private const int HairlineThickness = 1;   // 分隔線厚度（px）
     private const float SourceColumnFraction = 0.38f; // 原文欄寬佔表單寬比例（W3：左窄右寬）
+    private const float FixedButtonFontSize = 12f;   // 按鈕字級固定值：不隨 settings.FontSize 縮放（使用者決策）
 
     // ---- 骨架控制項（構建後為唯讀）----
     private readonly Panel _sourcePanel;      // ① 原文左欄（Panel 米色全高、右緣髮絲分隔、自身可捲）
     private readonly TableLayoutPanel _sourceHeader; // 面板上緣列：小標 + 幽靈鈕兩顆
-    private readonly Label _sourceCaption;    // 小標「選取文字」（Caption 色 11px）
     private readonly TextBox _sourceBox;      // 原文文字（SourceText 色、自身可捲）
     private readonly Button _ttsButton;       // 「🔊 朗讀」幽靈鈕
     private readonly Button _sourceCopyButton; // 「⧉ 複製原文」幽靈鈕（複製後不關彈窗）
+    private readonly Panel _contentRow;       // 上層 row 容器：左原文欄＋右譯文區（動作列/狀態條在其下方全寬）
     private readonly Panel _translationHost;  // 譯文區外框（套用卡片內距）
     private readonly TextBox _translationBox; // ② 譯文大字（Ink 色 / 錯誤=Error 色）
     private readonly Panel _statusBar;        // ③ 狀態條（無狀態時整條 Hide）
@@ -121,7 +126,6 @@ public class PopupForm : Form
     // ---- 字型（Dispose 一律釋放；按鈕字型退回 _font 同實例時不重複釋放）----
     private readonly Font _font;             // 本文／狀態條／小標用（設定字級）
     private readonly Font _translationFont;  // 譯文大字（設定字級 + 2pt）
-    private readonly Font _captionFont;      // 面板上緣小標（11px）
     private readonly Font _buttonFont;       // 按鈕（Segoe UI Symbol 缺字防護，見類別註解）
 
     private Color _statusDotColor = Theme.Ink; // 圓點目前顏色（Paint 事件用）
@@ -152,23 +156,13 @@ public class PopupForm : Form
         Font = _font; // 其餘控制項繼承彈窗字級
         _translationFont = TryCreateFont(Theme.FontName, settings.FontSize + 2)
             ?? new Font(Control.DefaultFont.FontFamily, settings.FontSize + 2);
-        _captionFont = TryCreatePixelFont(Theme.FontName, 11f)
-            ?? new Font(Control.DefaultFont.FontFamily, 11f, GraphicsUnit.Pixel);
         // 按鈕字型：中文主字族缺 📋/🔊/⧉/⚙（U+1F4CB/U+1F50A/U+29C9/U+2699）的字圖，
         // GDI 量測繪製時落成 .notdef 空框（字級照舊，僅換含單色符號字圖的字族）；
         // 系統無此字族時沿用彈窗字型（退回文字仍可讀，僅符號為空框）。
-        _buttonFont = TryCreateFont("Segoe UI Symbol", settings.FontSize) ?? _font;
+        _buttonFont = TryCreateFont("Segoe UI Symbol", FixedButtonFontSize) ?? _font;
 
-        // ---- ① 原文內嵌面板（Panel 色 + Hairline 邊框，內距約 PanelPadding）----
-        _sourceCaption = new Label
-        {
-            Text = "選取文字",
-            AutoSize = true,
-            ForeColor = Theme.Caption,
-            Font = _captionFont,
-            Margin = new Padding(0),
-        };
-
+        // ---- ① 原文欄上緣列（無小標：「⧉ 複製原文」鈕本身已隱含「這裡是原文」，
+        //      使用者決策移除「選取文字」標籤；兩顆鈕靠右）----
         _ttsButton = CreateGhostButton(Theme.Panel, Theme.Hairline);
         _ttsButton.Text = "🔊 朗讀";
         _ttsButton.Click += OnTtsButtonClick;
@@ -186,11 +180,11 @@ public class PopupForm : Form
             ColumnCount = 3,
             RowCount = 1,
         };
-        _sourceHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F)); // 小標撐開左行
+        _sourceHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F)); // 空撐行：把按鈕推到欄位右緣
         _sourceHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));      // 🔊 幽靈鈕
         _sourceHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));      // ⧉ 幽靈鈕
         _sourceHeader.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        _sourceHeader.Controls.Add(_sourceCaption, 0, 0);
+        _sourceHeader.Controls.Add(new Panel(), 0, 0);
         _sourceHeader.Controls.Add(_ttsButton, 1, 0);
         _sourceHeader.Controls.Add(_sourceCopyButton, 2, 0);
 
@@ -327,10 +321,21 @@ public class PopupForm : Form
         // 表單層加入順序（尾端先 dock）：譯文區（Fill）→ 狀態條（Bottom）→ 動作列（Bottom）
         // → 原文欄（Left）：原文欄先佔左緣、動作列佔最底、狀態條在動作列正上方、
         // 譯文區填其餘（「先 Fill 再 Bottom」同前版註解慣例）。
-        Controls.Add(_translationHost);
+        _contentRow = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Theme.Paper,
+            Margin = new Padding(0),
+        };
+        // 內層加入順序（尾端先 dock）：原文欄先佔左緣（僅至上層 row 高）、譯文區填其餘
+        _contentRow.Controls.Add(_translationHost);
+        _contentRow.Controls.Add(_sourcePanel);
+
+        // 表單層加入順序（尾端先 dock）：上下兩列結構——上方 row（左右欄）、
+        // 動作列佔最底、狀態條在動作列正上方（皆全寬跨兩欄）。
+        Controls.Add(_contentRow);
         Controls.Add(_statusBar);
         Controls.Add(_footer);
-        Controls.Add(_sourcePanel);
 
         _sourceBox.TextChanged += OnSourceBoxTextChanged;
     }
@@ -624,7 +629,6 @@ public class PopupForm : Form
             StopToastTimer(); // 防禦：任何釋放路徑都不留活的計時器（含 Timer 對本表單的參考）
             _font.Dispose();
             _translationFont.Dispose();
-            _captionFont.Dispose();
             if (!ReferenceEquals(_buttonFont, _font))
             {
                 _buttonFont.Dispose(); // 退回彈窗字型（同一實例）時不重複釋放
@@ -768,24 +772,6 @@ public class PopupForm : Form
     }
 
     /// <summary>建立指定字族、像素字級的字型（小標 11px）；系統無該字族時回傳 null。</summary>
-    private static Font? TryCreatePixelFont(string familyName, float size)
-    {
-        try
-        {
-            using var familyProbe = new Font(familyName, size, GraphicsUnit.Pixel);
-            if (string.Equals(familyProbe.Name, familyName, StringComparison.OrdinalIgnoreCase))
-            {
-                return new Font(familyName, size, GraphicsUnit.Pixel);
-            }
-        }
-        catch (ArgumentException)
-        {
-            // 字族不存在：Font 建構子會退回預設字族，以下 Name 比對已擋掉，僅防禦例外。
-        }
-
-        return null;
-    }
-
     /// <summary>
     /// 滑鼠位置右移/下移 16px 為左上角，clamp 進滑鼠所在螢幕（Screen.FromPoint）的
     /// WorkingArea，彈窗不溢出可視範圍。
