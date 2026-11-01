@@ -3,9 +3,11 @@ namespace AITranslator.Models;
 /// <summary>應用程式設定，屬性初始化器即預設值。</summary>
 public class AppSettings
 {
-    public int PopupWidth { get; set; } = 420;
+    /// <summary>彈窗寬度。預設 640——左右版面（W3 左窄右寬）在窄幅下譯文欄太擠。</summary>
+    public int PopupWidth { get; set; } = 640;
 
-    public int PopupHeight { get; set; } = 260;
+    /// <summary>彈窗高度。預設 320，搭配 640 寬呈左右版面的閱讀比例。</summary>
+    public int PopupHeight { get; set; } = 320;
 
     public float FontSize { get; set; } = 12f;
 

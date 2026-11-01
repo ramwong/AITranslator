@@ -30,8 +30,9 @@ public class SettingsServiceTests : IDisposable
     {
         var s = new AppSettings();
 
-        Assert.Equal(420, s.PopupWidth);
-        Assert.Equal(260, s.PopupHeight);
+        // 左右版面（W3）修訂後的預設：640×320（窄幅下譯文欄太擠，spec 2026-11-01 修訂）
+        Assert.Equal(640, s.PopupWidth);
+        Assert.Equal(320, s.PopupHeight);
         Assert.Equal(12f, s.FontSize);
         Assert.Equal("請將以下內容翻譯成繁體中文（台灣用語），只輸出譯文，不要解釋或加註:\n{text}", s.PromptTemplate);
         Assert.Equal("beam:cloud", s.Model);

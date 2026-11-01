@@ -57,11 +57,14 @@ namespace AITranslator.UI;
 /// 擷取帶入的特殊字元（如 U+00AD 軟連字符）可能量測低估。唯讀 TextBox 的背/前景色
 /// 須在 <c>ReadOnly=true</c> 之後設定，否則被系統灰底蓋掉。</para>
 ///
-/// <para><b>原文面板高度</b>：面板 Dock=Top，高度隨原文內容換算並 clamp
-/// （短文不佔滿、長文以上限為頂、內容本身可捲）——換算抽為純函式
-/// <see cref="ComputeSourcePanelHeight"/>；量測低估的影響僅是面板稍短（原文仍可捲，
-/// 不缺字），故另補半行 slack。原為空的 toast/過渡狀態照樣畫出完整骨架
-/// （小標、空面板、狀態條、動作列），不另開更小的卡。</para>
+/// <para><b>左右版面（2026-11-01 修訂，W3）</b>：原文為左側全高窄欄（寬度＝
+/// 表單寬的 <c>SourceColumnFraction</c>＝38%，Panel 米色、右緣 1px 髮絲分隔線、
+/// 自身可捲），譯文為右側主欄（Fill、白紙墨字）。動作列「⚙ 設定」靠左、
+/// 「📋 複製」靠右——複製鈕位於譯文欄（右欄）正下方，空間語意＝複製譯文。
+/// 動作列高度動態化：max(<see cref="Theme.FooterHeight"/>, 按鈕偏好高度 + 上下
+/// 留白 + 髮絲線)，不再依賴固定高度（36px 固定值曾把 31px 偏好按鈕裁成半個）。
+/// 原為空的 toast/過渡狀態照樣畫出完整骨架（小標、空原文欄、狀態條、動作列），
+/// 不另開更小的卡。</para>
 ///
 /// <para><b>字體</b>：全文統一 <see cref="Theme.FontName"/>；建議字族不存在時退回
 /// 系統預設字族。按鈕另備 Segoe UI Symbol 字型（📋/🔊/⧉/⚙ 等 U+1F4CB/U+1F50A/
@@ -96,13 +99,11 @@ public class PopupForm : Form
     private const int Offset = 16; // 滑鼠位置到彈窗左上角的方向偏移（px）
     private const int ToastAutoCloseMs = 2500; // toast 顯示多久後自動關閉（spec：顯示提示後自動關閉）
     private const int StatusDotSize = 8;       // 狀態條圓點直徑（px，spec：8px 圓點）
-    private const int HairlineThickness = 1;   // 面板邊框／上緣髮絲線厚度（px）
-    private const int ScrollBarWidthSlack = 2; // 量測寬度再扣的安全餘裕（px）
-    private const int HeaderFallbackHeight = 26; // 標列未完成版面時的保守高度（px）
-    private const float SourcePanelMaxFraction = 0.45f; // 原文面板高度上限佔彈窗高度比例
+    private const int HairlineThickness = 1;   // 分隔線厚度（px）
+    private const float SourceColumnFraction = 0.38f; // 原文欄寬佔表單寬比例（W3：左窄右寬）
 
     // ---- 骨架控制項（構建後為唯讀）----
-    private readonly Panel _sourcePanel;      // ① 原文內嵌面板（Panel 色 + Hairline 邊框）
+    private readonly Panel _sourcePanel;      // ① 原文左欄（Panel 米色全高、右緣髮絲分隔、自身可捲）
     private readonly TableLayoutPanel _sourceHeader; // 面板上緣列：小標 + 幽靈鈕兩顆
     private readonly Label _sourceCaption;    // 小標「選取文字」（Caption 色 11px）
     private readonly TextBox _sourceBox;      // 原文文字（SourceText 色、自身可捲）
@@ -197,16 +198,17 @@ public class PopupForm : Form
 
         _sourcePanel = new Panel
         {
-            Dock = DockStyle.Top,
+            Dock = DockStyle.Left,
+            Width = Math.Max((int)(settings.PopupWidth * SourceColumnFraction), 120), // W3：左欄 38% 表單寬
             BackColor = Theme.Panel,
-            Padding = new Padding(Theme.PanelPadding), // 原文面板內距（spec 間距 token）
+            Padding = new Padding(Theme.PanelPadding), // 原文欄內距（spec 間距 token）
             Margin = new Padding(0),
         };
         // 加入順序即 dock 順序（WinForms 由集合尾端起 dock）：先加入 Fill 的原文框，
-        // 再加入 Dock=Top 的標列——標列佔面板上緣，原文框填其餘。
+        // 再加入 Dock=Top 的標列——標列佔欄位上緣，原文框填其餘。
         _sourcePanel.Controls.Add(_sourceBox);
         _sourcePanel.Controls.Add(_sourceHeader);
-        _sourcePanel.Paint += OnSourcePanelPaint; // Hairline 邊框（四邊 1px 追框）
+        _sourcePanel.Paint += OnSourceColumnPaint; // 右緣髮絲分隔線（與譯文欄之間）
 
         // ---- ② 譯文區（外框套用卡片內距，內含 Fill 的譯文框）----
         _translationBox = CreateTextBox(Theme.Paper, Theme.Ink, _translationFont);
@@ -270,7 +272,7 @@ public class PopupForm : Form
         _copyButton = new Button
         {
             Text = "📋 複製",
-            Dock = DockStyle.Left,
+            Dock = DockStyle.Right, // W3：複製貼右——位於譯文欄正下方（空間語意＝複製譯文）
             FlatStyle = FlatStyle.Flat,
             BackColor = Theme.Accent,
             ForeColor = Theme.Paper, // 靛青底 + 紙色字
@@ -288,7 +290,7 @@ public class PopupForm : Form
 
         _settingsButton = CreateGhostButton(Theme.FooterBg, Theme.Panel); // hover 以 Panel 色近似 mockup
         _settingsButton.Text = "⚙";
-        _settingsButton.Dock = DockStyle.Right;
+        _settingsButton.Dock = DockStyle.Left;
         _settingsButton.MinimumSize = new Size(36, 0);
         _settingsButton.Enabled = true; // 設定鈕永遠可用
         _settingsButton.Click += OnSettingsButtonClick;
@@ -304,10 +306,17 @@ public class PopupForm : Form
         footerContent.Controls.Add(_copyButton);
         footerContent.Controls.Add(_settingsButton);
 
+        // 動作列高度動態化：按鈕偏好高度 + footerContent 上下留白 + 髮絲線——
+        // 固定 36px 曾留 23px 帶高、把 31px 偏好按鈕裁掉上下緣；Theme.FooterHeight 為下限。
+        int preferredButtonHeight = Math.Max(
+            _copyButton.GetPreferredSize(Size.Empty).Height,
+            _settingsButton.GetPreferredSize(Size.Empty).Height);
+        int dynamicFooterHeight = preferredButtonHeight + footerContent.Padding.Vertical + HairlineThickness;
+
         _footer = new Panel
         {
             Dock = DockStyle.Bottom,
-            Height = Theme.FooterHeight,
+            Height = Math.Max(Theme.FooterHeight, dynamicFooterHeight),
             BackColor = Theme.FooterBg,
             Margin = new Padding(0),
         };
@@ -316,7 +325,7 @@ public class PopupForm : Form
         _footer.Controls.Add(CreateHairline());
 
         // 表單層加入順序（尾端先 dock）：譯文區（Fill）→ 狀態條（Bottom）→ 動作列（Bottom）
-        // → 原文面板（Top）：原文面板先佔上緣、動作列佔最底、狀態條在動作列正上方、
+        // → 原文欄（Left）：原文欄先佔左緣、動作列佔最底、狀態條在動作列正上方、
         // 譯文區填其餘（「先 Fill 再 Bottom」同前版註解慣例）。
         Controls.Add(_translationHost);
         Controls.Add(_statusBar);
@@ -395,9 +404,8 @@ public class PopupForm : Form
         // 全形前進寬度渲染成 "' s"——見 DisplayText）；原始字串另存 _source，
         // 複製原文與朗讀一律走 _source，剪貼簿與 TTS 不被顯示層代換污染。
         _source = source;
-        _sourceBox.Text = DisplayText.Source(_source ?? string.Empty); // TextChanged 同步按鈕狀態與面板高度
+        _sourceBox.Text = DisplayText.Source(_source ?? string.Empty); // TextChanged 同步原文按鈕狀態
         UpdateSourceButtons();
-        UpdateSourcePanelHeight();
     }
 
     /// <summary>
@@ -593,8 +601,6 @@ public class PopupForm : Form
             DismissHook.Begin(() => Close(), () => Bounds);
         }
 
-        // 版面已完成：以正式寬度重算原文面板高度（建構期的暫估可能偏掉）。
-        UpdateSourcePanelHeight();
     }
 
     protected override void OnClosed(EventArgs e)
@@ -657,20 +663,19 @@ public class PopupForm : Form
         e.Graphics.FillEllipse(brush, 0, 0, StatusDotSize - 1, StatusDotSize - 1);
     }
 
-    /// <summary>原文面板 Hairline 邊框（四邊 1px 追框，畫在邊框外圈）。</summary>
-    private void OnSourcePanelPaint(object? sender, PaintEventArgs e)
+    /// <summary>原文欄右緣髮絲分隔線（W3 左右分欄）；欄寬固定，僅右緣一筆。</summary>
+    private void OnSourceColumnPaint(object? sender, PaintEventArgs e)
     {
         using var pen = new Pen(Theme.Hairline);
-        e.Graphics.DrawRectangle(pen, 0, 0, _sourcePanel.Width - 1, _sourcePanel.Height - 1);
+        e.Graphics.DrawLine(pen, _sourcePanel.Width - 1, 0, _sourcePanel.Width - 1, _sourcePanel.Height - 1);
     }
 
     // ---- 原文面板高度與按鈕狀態 --------------------------------------------
 
-    /// <summary>原文文字變更：原文按鈕可用狀態與面板高度一起重算。</summary>
+    /// <summary>原文文字變更：同步「🔊 朗讀」「⧉ 複製原文」按鈕可用狀態。</summary>
     private void OnSourceBoxTextChanged(object? sender, EventArgs e)
     {
         UpdateSourceButtons();
-        UpdateSourcePanelHeight();
     }
 
     /// <summary>
@@ -682,48 +687,6 @@ public class PopupForm : Form
         var hasSource = !string.IsNullOrWhiteSpace(_sourceBox.Text);
         _ttsButton.Enabled = hasSource;
         _sourceCopyButton.Enabled = hasSource;
-    }
-
-    /// <summary>
-    /// 依原文內容換算並套用原文面板高度（Dock=Top 的 Height）：
-    /// 短文不佔滿（只留小可觀的最小高度）、長文以彈窗高約 45% 為頂（內容自身可捲）。
-    /// </summary>
-    private void UpdateSourcePanelHeight()
-    {
-        // 面板可視寬度扣掉上下髮絲線、面板左右內距與一條常駐縱向捲軸（+ 安全餘裕）。
-        int availableWidth = ClientSize.Width
-            - _sourcePanel.Padding.Horizontal
-            - HairlineThickness * 2
-            - SystemInformation.VerticalScrollBarWidth
-            - ScrollBarWidthSlack;
-        int headerHeight = Math.Max(_sourceHeader.Height, HeaderFallbackHeight);
-        int chromeHeight = headerHeight + _sourcePanel.Padding.Vertical + HairlineThickness * 2;
-        int lineHeight = _sourceBox.Font.Height;
-        int minHeight = lineHeight + chromeHeight; // 空文/短文的最小面板高：一線原文高
-        int maxHeight = Math.Max(minHeight, (int)(ClientSize.Height * SourcePanelMaxFraction));
-
-        _sourcePanel.Height = ComputeSourcePanelHeight(
-            _sourceBox.Text, _sourceBox.Font, availableWidth, chromeHeight, minHeight, maxHeight);
-    }
-
-    /// <summary>
-    /// 由原文內容換算原文面板目標高度（px）：以 <paramref name="availableWidth"/>
-    /// 折行量測全文總高、另補半行 slack（量測與繪製是兩條程式路徑，遇軟連字符等
-    /// 特殊字元可能低估；低估僅使面板偏短、原生捲軸保證內容可達，見類別註解），
-    /// 加上 <paramref name="chromeHeight"/>（標列＋面板內距＋髮絲線）後
-    /// clamp 於 [min, max]。抽為純函式以便於必要時單測 clamp 行為。
-    /// </summary>
-    internal static int ComputeSourcePanelHeight(string text, Font textFont, int availableWidth,
-        int chromeHeight, int minHeight, int maxHeight)
-    {
-        var proposed = new Size(Math.Max(availableWidth, 1), int.MaxValue);
-        var measured = TextRenderer.MeasureText(
-            text ?? string.Empty, textFont, proposed,
-            TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl | TextFormatFlags.NoPadding);
-        int slack = (textFont.Height + 1) / 2; // 半行量測保險（上限 clamp 兜底）
-        int desired = measured.Height + slack + chromeHeight;
-
-        return Math.Clamp(desired, minHeight, Math.Max(minHeight, maxHeight));
     }
 
     // ---- 建構 helper -------------------------------------------------------
