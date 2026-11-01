@@ -219,7 +219,7 @@ public sealed class AppController : IDisposable
         var icon = new NotifyIcon
         {
             Text = "AITranslator",
-            Icon = SystemIcons.Application,
+            Icon = LoadAppIcon(),
             Visible = true,
         };
 
@@ -231,6 +231,24 @@ public sealed class AppController : IDisposable
         icon.ContextMenuStrip = menu;
         icon.DoubleClick += (_, _) => ShowSettings();
         return icon;
+    }
+
+    /// <summary>
+    /// 載入 app 圖示（brand/AITranslator.ico 由 csproj ApplicationIcon 嵌入 exe）：
+    /// 從執行檔抽出 32px 版供系統匣使用；單檔發布/權限等抽取失敗時退回
+    /// 系統預設圖示（永不因圖示載入讓啟動失敗）。
+    /// </summary>
+    private static Icon LoadAppIcon()
+    {
+        try
+        {
+            return Icon.ExtractAssociatedIcon(Application.ExecutablePath)
+                   ?? SystemIcons.Application;
+        }
+        catch (Exception)
+        {
+            return SystemIcons.Application;
+        }
     }
 
     /// <summary>開啟（強制回）設定對話框；存檔成功後由回呼帶回新設定。</summary>

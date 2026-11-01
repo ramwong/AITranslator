@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- AITranslator brand mark:「譯」方章 — 靛青 #2B5FCD 印章底 + 紙白 #FCFAF6 字 -->
+  <rect x="10" y="10" width="80" height="80" rx="12" fill="#2B5FCD"/>
+  <text x="50" y="53" font-family="Microsoft JhengHei, sans-serif" font-weight="700"
+        font-size="52" fill="#FCFAF6" text-anchor="middle" dominant-baseline="central">譯</text>
+</svg>

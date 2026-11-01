@@ -127,6 +127,14 @@ public class SettingsForm : Form
         BuildLayout();
 
         Text = "設定";
+        try
+        {
+            Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); // 標題列與 Alt+Tab 用 app 印章圖示
+        }
+        catch (Exception)
+        {
+            // 抽取失敗留系統預設表單圖示，不阻擋設定視窗開啟。
+        }
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         MinimizeBox = false;
