@@ -117,7 +117,7 @@
 
 ## Markdown/箭咀輸出處理（2026-11-01 修訂，兩層防護——使用者決策）
 
-LLM 慣性輸出 Markdown/LaTeX/HTML 標記（如 ightarrow、&amp;rightarrow;），彈窗要的是可直接閱讀/複製的純文字：
+LLM 慣性輸出 Markdown/LaTeX/HTML 標記（如 `\rightarrow`、`&rightarrow;`），彈窗要的是可直接閱讀/複製的純文字：
 
 - **Prompt 層（治本）**：`PromptBuilder.BuildTranslation` 在譯文類 prompt（翻譯、OCR 直譯、合併 OCR）尾端附加純文字約束（`MarkdownNoMarkupSuffix`）——**存在 builder 層**，使用者 settings.json 的既有範本不需重置也生效；約束明文豁免「原文原樣輸出」（合併 OCR 前綴的原文段不受影響）
 - **Code 層（保險）**：`Services/ReplyCleaner.Clean` 白名單純函式——只轉表列的箭咀 LaTeX／HTML entity 與常見 entity（&amp;lt; 等），長鍵在前 avoid 前綴誤傷；**僅作用於譯文**（TranslateAsync 成功結果、合併輸出的譯文半段），原文一律原樣；`*強調*`、`#` 等格式符號**不剝除**（誤判風險高）
