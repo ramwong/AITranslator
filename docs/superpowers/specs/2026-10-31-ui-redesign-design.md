@@ -23,7 +23,7 @@
 - **按鈕字級固定 12pt**：不隨 settings.FontSize 縮放（使用者決策：字級調大時按鈕不需跟著變大）
 - **上下兩列結構**（使用者決策，原 Dock=Left 全高會把動作列擠進右欄成為右欄的一 row）：外層 2 row——上 row＝左右雙欄（`_contentRow`），下 row＝全寬狀態條＋動作列
 - **預設尺寸**：`AppSettings.PopupWidth/Height` 預設改 **640×320**（舊 settings.json 已存值者沿用舊值，需手動調一次）
-- 狀態條橫跨譯文欄（左右版面下「全寬」＝譯文欄寬，mockup W3 同）、兩級錯誤語意、no-activate 合約、複製/TTS 用原始字串契約——皆不變
+- 狀態條全寬（上下兩列結構修訂後＝表單寬）、兩級錯誤語意、no-activate 合約、複製/TTS 用原始字串契約——皆不變
 
 ## 決策歷程（皆經使用者以 mockup 確認）
 

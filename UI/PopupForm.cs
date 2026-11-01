@@ -109,7 +109,7 @@ public class PopupForm : Form
 
     // ---- 骨架控制項（構建後為唯讀）----
     private readonly Panel _sourcePanel;      // ① 原文左欄（Panel 米色全高、右緣髮絲分隔、自身可捲）
-    private readonly TableLayoutPanel _sourceHeader; // 面板上緣列：小標 + 幽靈鈕兩顆
+    private readonly TableLayoutPanel _sourceHeader; // 欄位上緣列：兩顆幽靈鈕靠右（小標已移除）
     private readonly TextBox _sourceBox;      // 原文文字（SourceText 色、自身可捲）
     private readonly Button _ttsButton;       // 「🔊 朗讀」幽靈鈕
     private readonly Button _sourceCopyButton; // 「⧉ 複製原文」幽靈鈕（複製後不關彈窗）
@@ -124,7 +124,7 @@ public class PopupForm : Form
     private readonly Button _settingsButton;  // 「⚙」幽靈鈕（永遠可用）
 
     // ---- 字型（Dispose 一律釋放；按鈕字型退回 _font 同實例時不重複釋放）----
-    private readonly Font _font;             // 本文／狀態條／小標用（設定字級）
+    private readonly Font _font;             // 本文／狀態條用（設定字級）
     private readonly Font _translationFont;  // 譯文大字（設定字級 + 2pt）
     private readonly Font _buttonFont;       // 按鈕（Segoe UI Symbol 缺字防護，見類別註解）
 
@@ -184,7 +184,7 @@ public class PopupForm : Form
         _sourceHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));      // 🔊 幽靈鈕
         _sourceHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));      // ⧉ 幽靈鈕
         _sourceHeader.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        _sourceHeader.Controls.Add(new Panel(), 0, 0);
+        _sourceHeader.Controls.Add(new Panel { Size = new Size(0, 0) }, 0, 0); // 空撐行：零尺寸，不撐高列
         _sourceHeader.Controls.Add(_ttsButton, 1, 0);
         _sourceHeader.Controls.Add(_sourceCopyButton, 2, 0);
 
@@ -318,9 +318,6 @@ public class PopupForm : Form
         _footer.Controls.Add(footerContent);
         _footer.Controls.Add(CreateHairline());
 
-        // 表單層加入順序（尾端先 dock）：譯文區（Fill）→ 狀態條（Bottom）→ 動作列（Bottom）
-        // → 原文欄（Left）：原文欄先佔左緣、動作列佔最底、狀態條在動作列正上方、
-        // 譯文區填其餘（「先 Fill 再 Bottom」同前版註解慣例）。
         _contentRow = new Panel
         {
             Dock = DockStyle.Fill,
@@ -450,7 +447,7 @@ public class PopupForm : Form
     /// 顯示提示文字（如「未選取文字」「選取文字超過 N 字上限」）並於 2500ms 後自動關閉
     /// （spec：顯示提示後自動關閉）。提示落在狀態條（muted、無點），不再塞進主文區；
     /// toast 覆蓋全部內容——清空原文面板與譯文區、停用全部文字類按鈕，但完整骨架
-    /// （小標、空面板、狀態條、動作列）照樣呈現。定位/重用方式與
+    /// （空原文欄、狀態條、動作列）照樣呈現。定位/重用方式與
     /// <see cref="ShowTranslation"/> 相同（非 busy 狀態）；toast 期間改呼叫
     /// <see cref="ShowTranslation"/> 或手動關閉都會取消計時器，不會有殘留的自動關閉
     /// 計時或洩漏的 Timer。
@@ -771,8 +768,7 @@ public class PopupForm : Form
         return null;
     }
 
-    /// <summary>建立指定字族、像素字級的字型（小標 11px）；系統無該字族時回傳 null。</summary>
-    /// <summary>
+        /// <summary>
     /// 滑鼠位置右移/下移 16px 為左上角，clamp 進滑鼠所在螢幕（Screen.FromPoint）的
     /// WorkingArea，彈窗不溢出可視範圍。
     /// </summary>
